@@ -141,13 +141,18 @@ export default function AdminPage() {
     if (!store) return;
     const salesData = order.items.map(item => ({ store_id: store.id, product_name: item.uniqueName, quantity: item.quantity, price: item.price, category: item.category, umbrella_number: order.umbrella_number }));
     const { error } = await supabase.from('sales').insert(salesData);
-    if (!error) await supabase.from('orders').delete().eq('id', order.id);
+    if (!error) {
+        await supabase.from('orders').delete().eq('id', order.id);
+        fetchOrders(store.id);
+    }
   };
 
   const updateOrderStatus = async (order: Order) => {
+    if (!store) return;
     if (order.status === 'new') await supabase.from('orders').update({ status: 'preparing', accepted_at: new Date().toISOString() }).eq('id', order.id);
     else if (order.status === 'preparing') await supabase.from('orders').update({ status: 'shipped' }).eq('id', order.id);
     else if (order.status === 'shipped') await archiveOrder(order);
+    fetchOrders(store.id);
   };
 
   const resetTable = async (uNum: string) => {
@@ -156,6 +161,8 @@ export default function AdminPage() {
         const tableOrders = orders.filter(o => o.umbrella_number === uNum);
         for (const order of tableOrders) await archiveOrder(order);
         await supabase.from('service_requests').delete().eq('umbrella_number', uNum).eq('store_id', store.id);
+        fetchRequests(store.id);
+        fetchOrders(store.id);
     }
   };
 
@@ -253,22 +260,17 @@ export default function AdminPage() {
           <button onClick={() => setAdminTab('settings')} className={`px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm font-black transition-all flex items-center gap-2 shrink-0 ${adminTab === 'settings' ? 'text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`} style={adminTab === 'settings' ? { backgroundColor: store.primary_color } : {}}><Settings size={16}/> ΡΥΘΜΙΣΕΙΣ</button>
         </div>
 
-        {/* --- TACTICAL ORDERS TAB --- */}
         {adminTab === 'orders' && (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
             {activeUmbrellas.map(uNum => {
                 const tableOrders = orders.filter(o => o.umbrella_number === uNum);
                 const tableRequests = requests.filter(r => r.umbrella_number === uNum);
-                
-                // Alert Priority Logic
                 const hasPendingRequest = tableRequests.length > 0;
                 const hasNewOrder = tableOrders.some(o => o.status === 'new');
                 const isCriticalAlert = hasPendingRequest || hasNewOrder;
                 
                 return (
                     <div key={uNum} className={`rounded-2xl border-2 flex flex-col overflow-hidden bg-slate-900 transition-colors duration-300 ${isCriticalAlert ? 'border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.15)]' : 'border-slate-800'}`}>
-                        
-                        {/* Κεφαλίδα Ομπρέλας */}
                         <div className={`p-4 flex justify-between items-center border-b ${isCriticalAlert ? 'bg-red-950/40 border-red-900/50' : 'bg-slate-800/50 border-slate-800'}`}>
                             <div className="flex items-center gap-3">
                                 <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-black text-xl ${isCriticalAlert ? 'bg-red-500 text-white' : 'bg-slate-800 text-slate-300'}`}>{uNum}</div>
@@ -282,38 +284,28 @@ export default function AdminPage() {
                             </button>
                         </div>
 
-                        {/* Κυρίως Σώμα - Λίστα Παραγγελιών & Requests */}
                         <div className="p-4 flex-1 flex flex-col gap-4 bg-slate-950/30">
-                            
-                            {/* Service Requests (Λογαριασμός) */}
                             {tableRequests.map(r => (
                                 <div key={r.id} className="bg-red-500/10 border border-red-500/50 p-4 rounded-xl flex justify-between items-center">
                                     <div>
                                         <p className="text-[10px] text-red-400 font-black uppercase tracking-widest mb-1 flex items-center gap-1"><AlertTriangle size={12}/> ΑΙΤΗΜΑ ΕΞΥΠΗΡΕΤΗΣΗΣ</p>
                                         <p className="text-sm text-white font-bold uppercase tracking-tight">ΠΛΗΡΩΜΗ ΜΕ {r.payment_method}</p>
                                     </div>
-                                    <button onClick={() => supabase.from('service_requests').delete().eq('id', r.id)} className="bg-red-500 text-white px-4 py-2 rounded-lg font-black text-xs uppercase hover:bg-red-400 transition-colors">ΟΛΟΚΛΗΡΩΣΗ</button>
+                                    <button onClick={() => supabase.from('service_requests').delete().eq('id', r.id).then(() => fetchRequests(store.id))} className="bg-red-500 text-white px-4 py-2 rounded-lg font-black text-xs uppercase hover:bg-red-400 transition-colors">ΟΛΟΚΛΗΡΩΣΗ</button>
                                 </div>
                             ))}
 
-                            {/* Orders Loop */}
                             {tableOrders.map(o => {
                                 const isNew = o.status === 'new';
                                 const isPreparing = o.status === 'preparing';
                                 const waitMins = getWaitTime(o.created_at);
-                                
-                                // Tactical Colors based on status
                                 const statusColor = isNew ? 'bg-red-500' : isPreparing ? 'bg-amber-500' : 'bg-emerald-500';
                                 const cardBorder = isNew ? 'border-red-500/30' : isPreparing ? 'border-amber-500/30' : 'border-slate-800';
                                 const cardBg = isNew ? 'bg-red-950/20' : isPreparing ? 'bg-amber-950/10' : 'bg-slate-900/50';
 
                                 return (
                                 <div key={o.id} className={`p-4 rounded-xl border ${cardBorder} ${cardBg} relative overflow-hidden`}>
-                                    
-                                    {/* Αριστερή λωρίδα χρώματος */}
                                     <div className={`absolute left-0 top-0 bottom-0 w-1 ${statusColor}`}></div>
-                                    
-                                    {/* GIFT ALERT BANNER */}
                                     {o.is_gift && (
                                         <div className="bg-purple-900/40 border border-purple-500/50 p-2.5 rounded-lg mb-4 flex items-center justify-between text-purple-200">
                                             <div className="flex items-center gap-2 text-xs font-black uppercase tracking-widest">
@@ -326,7 +318,6 @@ export default function AdminPage() {
                                         </div>
                                     )}
 
-                                    {/* Header Κάρτας (Χρόνος & Ποσό) */}
                                     <div className="flex justify-between items-start mb-3 pl-2">
                                         <div className="flex items-center gap-2">
                                             <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded ${statusColor} text-white`}>
@@ -339,7 +330,6 @@ export default function AdminPage() {
                                         <p className="font-black text-sm text-white">{o.total_price.toFixed(2)}€</p>
                                     </div>
 
-                                    {/* Λίστα Προϊόντων */}
                                     <div className="space-y-1.5 mb-5 pl-2">
                                         {o.items.map((item, idx) => (
                                             <div key={idx} className={`flex items-start gap-2 text-sm font-medium ${o.status === 'shipped' ? 'text-slate-500 line-through opacity-70' : 'text-slate-200'}`}>
@@ -349,7 +339,6 @@ export default function AdminPage() {
                                         ))}
                                     </div>
 
-                                    {/* Action Button */}
                                     <button 
                                         onClick={() => updateOrderStatus(o)} 
                                         className={`w-full py-3 rounded-lg font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
@@ -370,7 +359,6 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* --- MAP TAB --- */}
         {adminTab === 'map' && (
           <div className="space-y-6 animate-in fade-in duration-500 pb-10">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-900 p-4 sm:p-6 rounded-2xl border border-slate-800">
@@ -382,7 +370,6 @@ export default function AdminPage() {
                   <QrCode size={18}/> ΕΚΤΥΠΩΣΗ ΚΩΔΙΚΩΝ ΠΡΟΣΒΑΣΗΣ (QR)
                </button>
             </div>
-            
             <div ref={mapRef} onMouseMove={e => {
                 if (draggingId === null || !mapRef.current) return;
                 const rect = mapRef.current.getBoundingClientRect();
@@ -392,15 +379,13 @@ export default function AdminPage() {
                 const rect = mapRef.current.getBoundingClientRect();
                 const touch = e.touches[0];
                 setUmbrellas(prev => prev.map(u => u.id === draggingId ? { ...u, x_pos: Math.round(touch.clientX - rect.left - 40), y_pos: Math.round(touch.clientY - rect.top - 40) } : u));
-            }} onTouchEnd={handleMouseUp} className="relative w-full h-[500px] sm:h-[650px] bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden shadow-inner cursor-crosshair"
-            style={{ backgroundImage: 'radial-gradient(#334155 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
+            }} onTouchEnd={handleMouseUp} className="relative w-full h-[500px] sm:h-[650px] bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden shadow-inner cursor-crosshair" style={{ backgroundImage: 'radial-gradient(#334155 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
               {umbrellas.map(u => {
                 const hasOrder = orders.some(o => o.umbrella_number === u.number);
                 const hasReq = requests.find(r => r.umbrella_number === u.number);
                 let stateClass = "bg-slate-800 border-slate-700 text-slate-500";
                 if (hasReq) stateClass = "bg-red-500 border-red-400 text-white shadow-[0_0_20px_rgba(239,68,68,0.5)] z-30";
                 else if (hasOrder) stateClass = "bg-amber-500 border-amber-400 text-amber-950 shadow-[0_0_20px_rgba(245,158,11,0.3)] z-20";
-                
                 return (
                   <div key={u.id} onMouseDown={() => setDraggingId(u.id)} onTouchStart={() => setDraggingId(u.id)} className={`absolute w-16 h-16 sm:w-20 sm:h-20 rounded-lg border-2 flex flex-col items-center justify-center cursor-grab active:cursor-grabbing transition-all duration-200 group ${stateClass} ${draggingId === u.id ? 'scale-110 opacity-70 z-50 ring-4 ring-cyan-500/30' : ''}`} style={{ left: `${u.x_pos}px`, top: `${u.y_pos}px`, transition: draggingId === u.id ? 'none' : 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)' }}>
                     <span className="absolute top-2 text-lg sm:text-xl font-black tracking-tighter z-10">{u.number}</span>
@@ -412,7 +397,6 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* --- MENU TAB --- */}
         {adminTab === 'menu' && (
            <div className="space-y-6 sm:space-y-8 animate-in fade-in duration-500 pb-10">
               <div className="bg-slate-900 p-4 sm:p-8 rounded-2xl border border-slate-800 shadow-xl">
@@ -425,7 +409,6 @@ export default function AdminPage() {
                   <input placeholder="P (g)" type="number" className="bg-slate-950 p-3 sm:p-4 rounded-lg border border-slate-800 text-white text-sm sm:text-base" value={newProduct.protein} onChange={(e) => setNewProduct({...newProduct, protein: e.target.value})} />
                   <input placeholder="Cal" type="number" className="bg-slate-950 p-3 sm:p-4 rounded-lg border border-slate-800 text-white text-sm sm:text-base" value={newProduct.calories} onChange={(e) => setNewProduct({...newProduct, calories: e.target.value})} />
                 </div>
-                
                 <div className="col-span-full bg-slate-950 p-3 sm:p-4 rounded-lg border border-slate-800 mb-4">
                     <p className="text-[10px] sm:text-xs font-bold text-slate-500 uppercase mb-3">ΠΡΟΑΙΡΕΤΙΚΕΣ ΕΠΙΛΟΓΕΣ / ΠΑΡΑΜΕΤΡΟΙ</p>
                     <div className="flex gap-2 mb-3 flex-wrap">
@@ -440,7 +423,6 @@ export default function AdminPage() {
                         <button onClick={addOption} className="bg-slate-800 hover:bg-cyan-500 hover:text-slate-950 text-white px-4 sm:px-6 rounded-lg transition-all font-black flex items-center justify-center"><Plus size={20}/></button>
                     </div>
                 </div>
-
                 <button onClick={handleAddProduct} className="w-full bg-cyan-500 text-slate-950 p-4 sm:p-5 rounded-lg font-black uppercase transition-all hover:bg-cyan-400 active:scale-95 text-sm sm:text-base tracking-widest">ΕΝΤΑΞΗ ΣΤΟ ΣΥΣΤΗΜΑ</button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
@@ -463,19 +445,16 @@ export default function AdminPage() {
            </div>
         )}
 
-        {/* --- SETTINGS TAB --- */}
         {adminTab === 'settings' && (
           <div className="space-y-6 sm:space-y-8 animate-in fade-in duration-500 max-w-3xl flex-1 pb-10">
              <div className="bg-slate-900 p-6 sm:p-8 rounded-2xl border border-slate-800 shadow-xl">
                 <h3 className="text-lg sm:text-xl font-black mb-2 text-white">White-Labeling & Εμφάνιση</h3>
                 <p className="text-slate-500 text-xs sm:text-sm font-bold mb-6 sm:mb-8">Προσάρμοσε την εφαρμογή του AQUA στα χρώματα του πελάτη σου.</p>
-                
                 <div className="space-y-6 mb-8">
                     <div>
                         <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 block">ΟΝΟΜΑΣΙΑ ΜΟΝΑΔΑΣ</label>
                         <input className="w-full bg-slate-950 border border-slate-800 p-4 rounded-lg text-white font-bold outline-none focus:border-cyan-500" value={settingsName} onChange={e => setSettingsName(e.target.value)} />
                     </div>
-                    
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                         <div>
                             <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 block">ΧΡΩΜΑ ΚΟΥΜΠΙΩΝ (PRIMARY)</label>
@@ -492,7 +471,6 @@ export default function AdminPage() {
                             </div>
                         </div>
                     </div>
-                    
                     <div className="bg-slate-950 p-4 rounded-lg border border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                         <div className="w-full min-w-0">
                             <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 block">ΔΗΜΟΣΙΟ LINK ΠΕΛΑΤΩΝ</label>
@@ -505,17 +483,14 @@ export default function AdminPage() {
                         </button>
                     </div>
                 </div>
-
                 <button onClick={updateSettings} className="w-full sm:w-auto bg-emerald-500 text-slate-950 px-8 py-4 rounded-lg font-black uppercase tracking-widest hover:bg-emerald-400 transition-all active:scale-95 text-sm flex justify-center items-center gap-2 shadow-lg shadow-emerald-500/20">
                     ΑΠΟΘΗΚΕΥΣΗ ΠΑΡΑΜΕΤΡΩΝ
                 </button>
              </div>
           </div>
         )}
-
       </main>
 
-      {/* --- MODAL QR CODES --- */}
       {isQRModalOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
            <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md" onClick={() => setIsQRModalOpen(false)}></div>
@@ -532,7 +507,6 @@ export default function AdminPage() {
                     const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
                     const qrUrl = `${baseUrl}/?store=${store.slug}&umbrella=${u.number}`;
                     const qrImageSrc = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qrUrl)}&margin=10`;
-                    
                     return (
                        <div key={u.id} className="flex flex-col items-center bg-slate-950 p-4 border border-slate-800 rounded-xl group hover:border-purple-500/50 transition-colors">
                           <h3 className="font-black text-lg sm:text-xl text-slate-300 mb-3 tracking-tighter uppercase">ΖΩΝΗ {u.number}</h3>

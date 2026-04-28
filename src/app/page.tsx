@@ -5,7 +5,7 @@ import { supabase } from './lib/supabase';
 import { 
   ShoppingBag, ChevronLeft, Plus, Coffee, Umbrella, MapPin, 
   BellRing, CreditCard, Banknote, Smartphone, SplitSquareHorizontal, 
-  Gift, X, RotateCcw, Zap, Timer, CheckCircle2, WifiOff, RefreshCw
+  Gift, X, RotateCcw, Zap, Timer, CheckCircle2, WifiOff, RefreshCw, Hand
 } from 'lucide-react';
 
 type MenuItem = { id: number; name: string; price: number; category: string; description?: string; is_available: boolean; options?: string; store_id: string; };
@@ -38,7 +38,6 @@ export default function CustomerPage() {
   const [isRepeatModalOpen, setIsRepeatModalOpen] = useState(false);
   const [isServedVisible, setIsServedVisible] = useState(false);
 
-  // --- OFFLINE STATES ---
   const [isOnline, setIsOnline] = useState(true);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
@@ -135,7 +134,7 @@ export default function CustomerPage() {
   const submitOrder = async (itemsToSubmit: CartItem[] = cart) => {
     if (itemsToSubmit.length === 0 || !umbrellaNumber || !storeDetails) return;
     const totalPrice = itemsToSubmit.reduce((s, i) => s + (i.price * i.quantity), 0);
-    const orderPayload = { store_id: storeDetails.id, umbrella_number: isGiftMode ? targetUmbrella : umbrellaNumber, items: itemsToSubmit, total_price: totalPrice, status: 'new', is_gift: isGiftMode, from_umbrella: umbrellaNumber, to_umbrella: isGiftMode ? targetUmbrella : null };
+    const orderPayload = { store_id: storeDetails.id, umbrella_number: isGiftMode ? targetUmbrella : umbrellaNumber, items: itemsToSubmit, total_price: totalPrice, status: 'new', is_gift: isGiftMode, from_umbrella: isGiftMode ? umbrellaNumber : null, to_umbrella: isGiftMode ? targetUmbrella : null };
 
     if (!isOnline) {
         localStorage.setItem('aqua_pending_order', JSON.stringify(orderPayload));
@@ -188,7 +187,7 @@ export default function CustomerPage() {
         return;
     }
     const { error } = await supabase.from('service_requests').insert([requestPayload]);
-    if (!error) { setIsServiceOpen(false); alert("Ο σερβιτόρος ειδοποιήθηκε για τον λογαριασμό!"); }
+    if (!error) { setIsServiceOpen(false); alert("Ο σερβιτόρος ειδοποιήθηκε!"); }
   };
 
   const removeFromCart = (cartId: number) => setCart(prev => prev.filter(item => item.cartId !== cartId));
@@ -234,7 +233,6 @@ export default function CustomerPage() {
   }
 
   return (
-    // ΝΕΟ: fixed inset-0 overflow-hidden -> "Κλειδώνει" την οθόνη να μην κουνιέται όλη!
     <div className={`fixed inset-0 w-full h-full font-sans flex flex-col overflow-hidden transition-colors duration-500 ${textColor}`} style={{ backgroundColor: dynamicBgColor }}>
       
       <div className="shrink-0 z-50">
@@ -286,7 +284,6 @@ export default function CustomerPage() {
         </header>
       </div>
 
-      {/* ΝΕΟ: Εσωτερικό Scroll για το Main (flex-1 overflow-y-auto overscroll-y-none) */}
       <main className="flex-1 overflow-y-auto overscroll-y-none px-4 sm:px-6 py-6 pb-40 w-full max-w-lg mx-auto">
         {umbrellaNumber && !activeCategory && (
            <div className="space-y-3 mb-8">
@@ -300,11 +297,18 @@ export default function CustomerPage() {
                 </button>
               )}
               <div className="grid grid-cols-2 gap-3">
-                <button onClick={() => setIsServiceOpen(true)} className={`p-4 rounded-3xl font-black flex items-center justify-between gap-2 text-xs shadow-lg active:scale-95 transition-all ${isDarkTheme ? 'bg-slate-800 text-white border border-slate-700' : 'bg-slate-900 text-white'}`}>
-                  <div className="flex items-center gap-2"><BellRing size={16} style={{ color: safeThemeColor }} /> ΛΟΓΑΡΙΑΣΜΟΣ</div>
-                  {totalOwed > 0 && <span className="text-[10px] px-2 py-1 rounded-lg font-black" style={{ backgroundColor: themeColor, color: themeTextHex }}>{totalOwed.toFixed(2)}€</span>}
+                <button onClick={() => setIsServiceOpen(true)} className={`p-4 rounded-3xl font-black flex flex-col items-center justify-center gap-2 text-xs shadow-lg active:scale-95 transition-all ${isDarkTheme ? 'bg-slate-800 text-white border border-slate-700' : 'bg-slate-900 text-white'}`}>
+                  <BellRing size={20} style={{ color: safeThemeColor }} />
+                  <span>ΛΟΓΑΡΙΑΣΜΟΣ {totalOwed > 0 ? `(${totalOwed.toFixed(2)}€)` : ''}</span>
                 </button>
-                <button onClick={() => { setIsGiftMode(true); setActiveCategory('Όλα'); }} className={`p-4 rounded-3xl font-black flex items-center justify-center gap-2 text-xs shadow-lg active:scale-95 transition-all ${isDarkTheme ? 'bg-slate-800 text-white border border-slate-700' : 'bg-gradient-to-br from-purple-600 to-pink-600 text-white'}`}><Gift size={16} className={isDarkTheme ? 'text-purple-400' : ''} /> ΚΕΡΑΣΕ ΦΙΛΟ</button>
+                <div className="flex flex-col gap-3">
+                    <button onClick={() => callWaiter('ΚΛΗΣΗ (ΑΠΛΗ)')} className={`p-3 rounded-[1.2rem] font-black flex items-center justify-center gap-2 text-[10px] uppercase tracking-widest shadow-md active:scale-95 transition-all ${isDarkTheme ? 'bg-slate-800 text-slate-300 border border-slate-700' : 'bg-slate-100 text-slate-700'}`}>
+                        <Hand size={14} /> ΚΑΛΕΣΕ ΣΕΡΒΙΤΟΡΟ
+                    </button>
+                    <button onClick={() => { setIsGiftMode(true); setActiveCategory('Όλα'); }} className={`p-3 rounded-[1.2rem] font-black flex items-center justify-center gap-2 text-[10px] uppercase tracking-widest shadow-md active:scale-95 transition-all ${isDarkTheme ? 'bg-purple-900/40 text-purple-300 border border-purple-500/30' : 'bg-purple-100 text-purple-700 border border-purple-200'}`}>
+                        <Gift size={14} /> ΚΕΡΑΣΕ ΦΙΛΟ
+                    </button>
+                </div>
               </div>
            </div>
         )}
@@ -352,32 +356,37 @@ export default function CustomerPage() {
             </div>
           </div>
         )}
-
-        <div className="mt-12 mb-8 text-center opacity-40 hover:opacity-100 transition-opacity">
-            <p className={`text-[10px] font-bold tracking-widest uppercase ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                ⚡ Powered by <span className={`font-black ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>AQUA</span>
-            </p>
-        </div>
       </main>
 
-      {/* --- MODALS (Κλειδωμένα στο απόλυτο κέντρο) --- */}
+      {/* --- MODAL ΛΟΓΑΡΙΑΣΜΟΥ --- */}
       {isServiceOpen && (
         <div className="fixed inset-0 z-50 flex items-end justify-center">
            <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-md" onClick={() => setIsServiceOpen(false)}></div>
            <div className={`w-full max-w-lg p-6 sm:p-8 rounded-t-[2.5rem] relative z-10 animate-in slide-in-from-bottom-full duration-300 shadow-2xl ${isDarkTheme ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}`}>
              <div className="w-12 h-1.5 bg-slate-500/30 rounded-full mx-auto mb-6"></div>
              <h2 className="text-2xl font-black mb-2 tracking-tighter">Εξόφληση Λογαριασμού</h2>
-             <p className={`text-xs font-bold uppercase tracking-widest mb-6 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>Επιλεξτε τροπο πληρωμης</p>
+             <p className={`text-xs font-bold uppercase tracking-widest mb-6 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>ΠΩΣ ΘΑ ΠΛΗΡΩΣΕΤΕ;</p>
              <p className="text-5xl font-black text-center mb-8">{totalOwed.toFixed(2)}€</p>
              
-             <div className="grid grid-cols-2 gap-4 mb-6">
-               <button onClick={() => callWaiter('pos')} className={`p-6 rounded-3xl flex flex-col items-center gap-4 transition-all active:scale-95 shadow-sm border ${isDarkTheme ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
-                 <CreditCard size={40} style={{ color: safeThemeColor }}/>
-                 <span className="font-black text-sm uppercase">ΚΑΡΤΑ (POS)</span>
+             <div className="grid grid-cols-2 gap-3 mb-6">
+               <button onClick={() => callWaiter('ΚΑΡΤΑ (POS)')} className={`p-4 rounded-2xl flex flex-col items-center justify-center gap-3 transition-all active:scale-95 shadow-sm border ${isDarkTheme ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                 <CreditCard size={28} style={{ color: safeThemeColor }}/>
+                 <span className="font-black text-[11px] uppercase tracking-widest">ΚΑΡΤΑ (POS)</span>
                </button>
-               <button onClick={() => callWaiter('cash')} className={`p-6 rounded-3xl flex flex-col items-center gap-4 transition-all active:scale-95 shadow-sm border ${isDarkTheme ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
-                 <Banknote size={40} className="text-emerald-500"/>
-                 <span className="font-black text-sm uppercase">ΜΕΤΡΗΤΑ</span>
+               <button onClick={() => callWaiter('ΜΕΤΡΗΤΑ')} className={`p-4 rounded-2xl flex flex-col items-center justify-center gap-3 transition-all active:scale-95 shadow-sm border ${isDarkTheme ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                 <Banknote size={28} className="text-emerald-500"/>
+                 <span className="font-black text-[11px] uppercase tracking-widest">ΜΕΤΡΗΤΑ</span>
+               </button>
+               <button onClick={() => callWaiter('APPLE PAY / GOOGLE PAY')} className={`p-4 rounded-2xl flex flex-col items-center justify-center gap-3 transition-all active:scale-95 shadow-sm border ${isDarkTheme ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-900 text-white border-slate-800'}`}>
+                 <Smartphone size={28}/>
+                 <span className="font-black text-[11px] uppercase tracking-widest">APPLE PAY</span>
+               </button>
+               <button onClick={() => callWaiter('ΣΠΑΣΤΟ (Min 4€ Κάρτα)')} className={`p-4 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all active:scale-95 shadow-sm border ${isDarkTheme ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                 <SplitSquareHorizontal size={24} className="text-amber-500"/>
+                 <div className="text-center">
+                    <span className="font-black text-[11px] uppercase tracking-widest block">ΣΠΑΣΤΟ</span>
+                    <span className="text-[8px] font-bold text-slate-500 block leading-tight">(Min 4€ Κάρτα, τα υπόλοιπα Μετρητά)</span>
+                 </div>
                </button>
              </div>
              
@@ -434,7 +443,6 @@ export default function CustomerPage() {
         </div>
       )}
 
-      {/* FOOTER CHECKOUT (Κλειδωμένο στο κάτω μέρος της οθόνης) */}
       {cart.length > 0 && !isServiceOpen && !selectedProductForOptions && !isRepeatModalOpen && (
         <div className={`absolute bottom-6 left-4 right-4 sm:left-auto sm:right-auto sm:w-full sm:max-w-lg mx-auto rounded-[2.5rem] p-3 pl-6 flex justify-between items-center shadow-2xl z-40 animate-in slide-in-from-bottom-10 ${isDarkTheme ? 'bg-slate-800 border border-slate-700' : 'bg-slate-900'}`}>
           <div className="text-white font-black"><p className="text-[10px] uppercase mb-1 leading-none" style={{ color: safeThemeColor }}>ΣΥΝΟΛΟ</p><p className="text-2xl tracking-tighter leading-none">{cart.reduce((s,i) => s + (i.price*i.quantity), 0).toFixed(2)}€</p></div>
