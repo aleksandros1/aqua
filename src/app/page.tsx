@@ -5,7 +5,7 @@ import { supabase } from './lib/supabase';
 import { 
   ShoppingBag, ChevronLeft, Plus, Coffee, Umbrella, MapPin, 
   BellRing, CreditCard, Banknote, Smartphone, SplitSquareHorizontal, 
-  Gift, X, RotateCcw, Zap, Timer, CheckCircle2, WifiOff, RefreshCw, Hand
+  Gift, X, RotateCcw, Zap, Timer, CheckCircle2, WifiOff, RefreshCw, Hand, Info
 } from 'lucide-react';
 
 type MenuItem = { id: number; name: string; price: number; category: string; description?: string; is_available: boolean; options?: string; store_id: string; };
@@ -38,8 +38,20 @@ export default function CustomerPage() {
   const [isRepeatModalOpen, setIsRepeatModalOpen] = useState(false);
   const [isServedVisible, setIsServedVisible] = useState(false);
 
+  // Σύστημα Ειδοποιήσεων
+  const [toast, setToast] = useState<{ title: string; desc: string; icon: React.ReactNode; color: string } | null>(null);
   const [isOnline, setIsOnline] = useState(true);
-  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+
+  const showToast = (title: string, desc: string, type: 'success' | 'alert' | 'gift' = 'success') => {
+      let icon = <CheckCircle2 size={24} />;
+      let color = 'bg-emerald-500';
+      
+      if (type === 'gift') { icon = <Gift size={24} />; color = 'bg-purple-600'; }
+      if (type === 'alert') { icon = <BellRing size={24} />; color = 'bg-cyan-600'; }
+
+      setToast({ title, desc, icon, color });
+      setTimeout(() => setToast(null), 4000); // Κλείνει αυτόματα σε 4 δευτερόλεπτα
+  };
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -140,31 +152,32 @@ export default function CustomerPage() {
         localStorage.setItem('aqua_pending_order', JSON.stringify(orderPayload));
         if (!isGiftMode) { localStorage.setItem('aqua_last_order', JSON.stringify(itemsToSubmit)); setLastOrder(itemsToSubmit); }
         setCart([]); setIsCheckoutOpen(false); setIsGiftMode(false); setTargetUmbrella(''); setIsRepeatModalOpen(false);
-        setSyncMessage("Αποθηκεύτηκε εκτός σύνδεσης! Θα σταλεί μόλις βρεθεί σήμα.");
-        setTimeout(() => setSyncMessage(null), 5000);
+        showToast("Εκτός Σύνδεσης", "Αποθηκεύτηκε στο κινητό. Θα σταλεί μόλις βρεθεί σήμα.", "alert");
         return;
     }
 
     const { error } = await supabase.from('orders').insert([orderPayload]);
     if (!error) {
       if (!isGiftMode) { localStorage.setItem('aqua_last_order', JSON.stringify(itemsToSubmit)); setLastOrder(itemsToSubmit); }
+      
+      // Νέα Ειδοποίηση Ανάλογα τον Τύπο
+      if (isGiftMode) showToast("Το Κέρασμα Εστάλη!", `Ο Barista το ετοιμάζει για το τραπέζι ${targetUmbrella}.`, 'gift');
+      else showToast("Η Παραγγελία Εστάλη!", "Το προσωπικό έλαβε την παραγγελία σας.", 'success');
+
       setCart([]); setIsCheckoutOpen(false); setIsGiftMode(false); setTargetUmbrella(''); setIsRepeatModalOpen(false);
-    } else alert("Σφάλμα αποστολής. Παρακαλώ δοκιμάστε ξανά.");
+    } else {
+        showToast("Σφάλμα Δικτύου", "Η παραγγελία δεν εστάλη. Προσπαθήστε ξανά.", "alert");
+    }
   };
 
   const syncOfflineData = async () => {
       const pendingOrderStr = localStorage.getItem('aqua_pending_order');
       if (pendingOrderStr) {
-          setSyncMessage("Συγχρονισμός παραγγελίας...");
           const pendingOrder = JSON.parse(pendingOrderStr);
           const { error } = await supabase.from('orders').insert([pendingOrder]);
           if (!error) {
               localStorage.removeItem('aqua_pending_order');
-              setSyncMessage("Επιτυχής συγχρονισμός! Η παραγγελία σας εστάλη.");
-              setTimeout(() => setSyncMessage(null), 4000);
-          } else {
-              setSyncMessage("Αποτυχία συγχρονισμού.");
-              setTimeout(() => setSyncMessage(null), 3000);
+              showToast("Συγχρονισμός Επιτυχής", "Οι εκκρεμείς παραγγελίες σας εστάλησαν.");
           }
       }
       const pendingRequestStr = localStorage.getItem('aqua_pending_request');
@@ -182,12 +195,15 @@ export default function CustomerPage() {
     if (!isOnline) {
         localStorage.setItem('aqua_pending_request', JSON.stringify(requestPayload));
         setIsServiceOpen(false);
-        setSyncMessage("Εκτός σύνδεσης. Ο σερβιτόρος θα ειδοποιηθεί μόλις επανέλθει το δίκτυο.");
-        setTimeout(() => setSyncMessage(null), 5000);
+        showToast("Εκτός Σύνδεσης", "Η ειδοποίηση θα σταλεί μόλις επανέλθει το δίκτυο.", "alert");
         return;
     }
     const { error } = await supabase.from('service_requests').insert([requestPayload]);
-    if (!error) { setIsServiceOpen(false); alert("Ο σερβιτόρος ειδοποιήθηκε!"); }
+    if (!error) { 
+        setIsServiceOpen(false); 
+        // Νέα Ειδοποίηση για Κλήση / Λογαριασμό
+        showToast("Ο Σερβιτόρος Ειδοποιήθηκε", method === 'ΚΛΗΣΗ (ΑΠΛΗ)' ? "Έρχεται στο τραπέζι σας." : `Έρχεται με το λογαριασμό (${method}).`, 'alert');
+    }
   };
 
   const removeFromCart = (cartId: number) => setCart(prev => prev.filter(item => item.cartId !== cartId));
@@ -235,17 +251,24 @@ export default function CustomerPage() {
   return (
     <div className={`fixed inset-0 w-full h-full font-sans flex flex-col overflow-hidden transition-colors duration-500 ${textColor}`} style={{ backgroundColor: dynamicBgColor }}>
       
+      {/* TOAST NOTIFICATION CONTAINER (ΝΕΟ) */}
+      {toast && (
+          <div className={`fixed top-4 left-4 right-4 z-[100] ${toast.color} text-white p-4 rounded-2xl shadow-2xl flex items-start gap-3 animate-in slide-in-from-top-4 fade-in duration-300`}>
+             <div className="shrink-0 mt-0.5">{toast.icon}</div>
+             <div>
+                <p className="font-black text-sm uppercase tracking-widest">{toast.title}</p>
+                <p className="text-xs font-medium opacity-90">{toast.desc}</p>
+             </div>
+          </div>
+      )}
+
       <div className="shrink-0 z-50">
         {!isOnline && (
             <div className="bg-red-500 text-white p-2 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2">
                 <WifiOff size={14} /> Χωρις Συνδεση. Συνεχιστε κανονικα!
             </div>
         )}
-        {syncMessage && (
-            <div className="bg-cyan-500 text-slate-900 p-3 text-xs font-black tracking-wide flex items-center justify-center gap-2 shadow-lg">
-                <RefreshCw size={14} className="animate-spin"/> {syncMessage}
-            </div>
-        )}
+        
         {activeOrder && activeOrder.status !== 'completed' && (
           <div className={`p-4 animate-in slide-in-from-top duration-500 shadow-2xl transition-colors ${isServedVisible ? 'bg-emerald-500 text-white' : 'bg-slate-950 text-white'}`}>
              <div className="max-w-lg mx-auto flex items-center justify-between">
