@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import { 
   LayoutDashboard, Plus, Umbrella, Trash2, Coffee, Power, 
   Map, CreditCard, Banknote, CheckCircle, SplitSquareHorizontal, 
-  Gift, Bell, Timer, ShoppingCart, Move, ChevronRight, AlertTriangle, BarChart3, RefreshCw, List, Clock, X, QrCode, Settings, LogOut, Copy, ArrowRight
+  Gift, Bell, Timer, ShoppingCart, Move, ChevronRight, AlertTriangle, BarChart3, RefreshCw, List, Clock, X, QrCode, Settings, LogOut, Copy, ArrowRight, ArrowUp, ArrowDown, Palette
 } from 'lucide-react';
 
 type MenuItem = { id: number; name: string; price: number; category: string; description?: string; is_available: boolean; protein?: number; calories?: number; options?: string; };
@@ -13,7 +13,7 @@ type Order = { id: number; created_at: string; accepted_at?: string; umbrella_nu
 type UmbrellaType = { id: number; number: string; x_pos: number; y_pos: number; };
 type ServiceRequest = { id: number; umbrella_number: string; request_type: string; payment_method: string; notes: string; status: string; created_at: string; };
 type Sale = { id: number; created_at: string; product_name: string; quantity: number; price: number; category: string; umbrella_number: string; };
-type StoreDetails = { id: string; name: string; slug: string; primary_color: string; bg_color: string; owner_id: string; };
+type StoreDetails = { id: string; name: string; slug: string; primary_color: string; bg_color: string; owner_id: string; category_prefs: any[]; };
 
 export default function AdminPage() {
   const [session, setSession] = useState<any>(null);
@@ -46,6 +46,9 @@ export default function AdminPage() {
   const [settingsName, setSettingsName] = useState('');
   const [settingsColor, setSettingsColor] = useState('');
   const [settingsBgColor, setSettingsBgColor] = useState('');
+  
+  // Custom Κατηγορίες
+  const [catSettings, setCatSettings] = useState<{name: string, bg_color: string, text_color: string, sort_order: number}[]>([]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -70,6 +73,24 @@ export default function AdminPage() {
 
     return () => { supabase.removeChannel(ordersSub); supabase.removeChannel(requestsSub); supabase.removeChannel(salesSub); };
   }, [store]);
+
+  // Υπολογισμός ρυθμίσεων κατηγοριών όποτε φορτώνει το μενού
+  useEffect(() => {
+      if (store && menu.length > 0) {
+          const activeCategories = Array.from(new Set(menu.map(m => m.category)));
+          const savedPrefs = store.category_prefs || [];
+          
+          let merged = activeCategories.map(cat => {
+              const existing = savedPrefs.find((p:any) => p.name === cat);
+              if (existing) return existing;
+              return { name: cat, bg_color: '#334155', text_color: '#ffffff', sort_order: 999 };
+          });
+
+          merged.sort((a,b) => a.sort_order - b.sort_order);
+          merged = merged.map((m, i) => ({ ...m, sort_order: i }));
+          setCatSettings(merged);
+      }
+  }, [store, menu.length]);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,7 +126,31 @@ export default function AdminPage() {
   const updateSettings = async () => {
       if (!store) return;
       const { error } = await supabase.from('stores').update({ name: settingsName, primary_color: settingsColor, bg_color: settingsBgColor }).eq('id', store.id);
-      if (!error) { alert("Οι ρυθμίσεις αποθηκεύτηκαν!"); setStore({...store, name: settingsName, primary_color: settingsColor, bg_color: settingsBgColor}); }
+      if (!error) { alert("Βασικές ρυθμίσεις αποθηκεύτηκαν!"); setStore({...store, name: settingsName, primary_color: settingsColor, bg_color: settingsBgColor}); }
+  };
+
+  const updateCategorySettings = async () => {
+      if (!store) return;
+      const { error } = await supabase.from('stores').update({ category_prefs: catSettings }).eq('id', store.id);
+      if (!error) { alert("Οι κατηγορίες αποθηκεύτηκαν!"); setStore({...store, category_prefs: catSettings}); }
+  };
+
+  const moveCatUp = (index: number) => {
+      if (index === 0) return;
+      const newCats = [...catSettings];
+      const temp = newCats[index].sort_order;
+      newCats[index].sort_order = newCats[index - 1].sort_order;
+      newCats[index - 1].sort_order = temp;
+      setCatSettings(newCats.sort((a,b) => a.sort_order - b.sort_order).map((m,i) => ({...m, sort_order: i})));
+  };
+
+  const moveCatDown = (index: number) => {
+      if (index === catSettings.length - 1) return;
+      const newCats = [...catSettings];
+      const temp = newCats[index].sort_order;
+      newCats[index].sort_order = newCats[index + 1].sort_order;
+      newCats[index + 1].sort_order = temp;
+      setCatSettings(newCats.sort((a,b) => a.sort_order - b.sort_order).map((m,i) => ({...m, sort_order: i})));
   };
 
   const handleCopyLink = () => {
@@ -141,10 +186,7 @@ export default function AdminPage() {
     if (!store) return;
     const salesData = order.items.map(item => ({ store_id: store.id, product_name: item.uniqueName, quantity: item.quantity, price: item.price, category: item.category, umbrella_number: order.umbrella_number }));
     const { error } = await supabase.from('sales').insert(salesData);
-    if (!error) {
-        await supabase.from('orders').delete().eq('id', order.id);
-        fetchOrders(store.id);
-    }
+    if (!error) { await supabase.from('orders').delete().eq('id', order.id); fetchOrders(store.id); }
   };
 
   const updateOrderStatus = async (order: Order) => {
@@ -217,7 +259,6 @@ export default function AdminPage() {
                 <div className="w-20 h-20 bg-purple-500/20 rounded-3xl flex items-center justify-center mx-auto mb-6"><Coffee size={40} className="text-purple-500"/></div>
                 <h2 className="text-3xl font-black tracking-tighter mb-2 text-white">Αρχικοποίηση Βάσης</h2>
                 <p className="text-slate-500 text-sm font-bold mb-8">Όρισε τα στοιχεία αναγνώρισης της μονάδας σου.</p>
-                
                 <div className="space-y-4 mb-8">
                     <input placeholder="Ονομασία (π.χ. Nammos Beach)" className="w-full bg-slate-950 border border-slate-800 p-4 rounded-2xl text-white font-bold outline-none focus:border-purple-500 text-center" value={setupName} onChange={e => setSetupName(e.target.value)} />
                     <div className="flex items-center bg-slate-950 border border-slate-800 rounded-2xl p-2 focus-within:border-purple-500">
@@ -225,7 +266,6 @@ export default function AdminPage() {
                         <input placeholder="nammos" className="w-full bg-transparent p-2 text-white font-black outline-none lowercase min-w-0" value={setupSlug} onChange={e => setSetupSlug(e.target.value)} />
                     </div>
                 </div>
-                
                 <button onClick={createStore} className="w-full bg-purple-600 text-white p-5 rounded-2xl font-black uppercase tracking-widest hover:bg-purple-500 transition-all active:scale-95 shadow-xl shadow-purple-600/20 text-lg">ΕΚΚΙΝΗΣΗ</button>
             </div>
         </div>
@@ -283,7 +323,6 @@ export default function AdminPage() {
                                 <RefreshCw size={12}/> ΕΚΚΕΝΩΣΗ
                             </button>
                         </div>
-
                         <div className="p-4 flex-1 flex flex-col gap-4 bg-slate-950/30">
                             {tableRequests.map(r => (
                                 <div key={r.id} className="bg-red-500/10 border border-red-500/50 p-4 rounded-xl flex justify-between items-center">
@@ -294,7 +333,6 @@ export default function AdminPage() {
                                     <button onClick={() => supabase.from('service_requests').delete().eq('id', r.id).then(() => fetchRequests(store.id))} className="bg-red-500 text-white px-4 py-2 rounded-lg font-black text-xs uppercase hover:bg-red-400 transition-colors">ΟΛΟΚΛΗΡΩΣΗ</button>
                                 </div>
                             ))}
-
                             {tableOrders.map(o => {
                                 const isNew = o.status === 'new';
                                 const isPreparing = o.status === 'preparing';
@@ -317,7 +355,6 @@ export default function AdminPage() {
                                             </div>
                                         </div>
                                     )}
-
                                     <div className="flex justify-between items-start mb-3 pl-2">
                                         <div className="flex items-center gap-2">
                                             <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded ${statusColor} text-white`}>
@@ -329,7 +366,6 @@ export default function AdminPage() {
                                         </div>
                                         <p className="font-black text-sm text-white">{o.total_price.toFixed(2)}€</p>
                                     </div>
-
                                     <div className="space-y-1.5 mb-5 pl-2">
                                         {o.items.map((item, idx) => (
                                             <div key={idx} className={`flex items-start gap-2 text-sm font-medium ${o.status === 'shipped' ? 'text-slate-500 line-through opacity-70' : 'text-slate-200'}`}>
@@ -338,15 +374,7 @@ export default function AdminPage() {
                                             </div>
                                         ))}
                                     </div>
-
-                                    <button 
-                                        onClick={() => updateOrderStatus(o)} 
-                                        className={`w-full py-3 rounded-lg font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
-                                            isNew ? 'bg-red-500/10 text-red-400 border border-red-500/50 hover:bg-red-500 hover:text-white' : 
-                                            isPreparing ? 'bg-amber-500/10 text-amber-400 border border-amber-500/50 hover:bg-amber-500 hover:text-slate-900' : 
-                                            'bg-emerald-500/10 text-emerald-400 border border-emerald-500/50 hover:bg-emerald-500 hover:text-white'
-                                        }`}
-                                    >
+                                    <button onClick={() => updateOrderStatus(o)} className={`w-full py-3 rounded-lg font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${isNew ? 'bg-red-500/10 text-red-400 border border-red-500/50 hover:bg-red-500 hover:text-white' : isPreparing ? 'bg-amber-500/10 text-amber-400 border border-amber-500/50 hover:bg-amber-500 hover:text-slate-900' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/50 hover:bg-emerald-500 hover:text-white'}`}>
                                         {isNew ? 'ΑΝΑΘΕΣΗ ΓΙΑ ΕΤΟΙΜΑΣΙΑ' : isPreparing ? 'ΟΛΟΚΛΗΡΩΣΗ & ΣΕΡΒΙΡΙΣΜΑ' : 'ΑΡΧΕΙΟΘΕΤΗΣΗ (ΕΚΛΕΙΣΕ)'}
                                     </button>
                                 </div>
@@ -446,9 +474,11 @@ export default function AdminPage() {
         )}
 
         {adminTab === 'settings' && (
-          <div className="space-y-6 sm:space-y-8 animate-in fade-in duration-500 max-w-3xl flex-1 pb-10">
-             <div className="bg-slate-900 p-6 sm:p-8 rounded-2xl border border-slate-800 shadow-xl">
-                <h3 className="text-lg sm:text-xl font-black mb-2 text-white">White-Labeling & Εμφάνιση</h3>
+          <div className="space-y-6 sm:space-y-8 animate-in fade-in duration-500 flex-1 pb-10">
+             
+             {/* ΒΑΣΙΚΕΣ ΡΥΘΜΙΣΕΙΣ */}
+             <div className="bg-slate-900 p-6 sm:p-8 rounded-2xl border border-slate-800 shadow-xl max-w-3xl">
+                <h3 className="text-lg sm:text-xl font-black mb-2 text-white">White-Labeling & Βασική Εμφάνιση</h3>
                 <p className="text-slate-500 text-xs sm:text-sm font-bold mb-6 sm:mb-8">Προσάρμοσε την εφαρμογή του AQUA στα χρώματα του πελάτη σου.</p>
                 <div className="space-y-6 mb-8">
                     <div>
@@ -487,10 +517,59 @@ export default function AdminPage() {
                     ΑΠΟΘΗΚΕΥΣΗ ΠΑΡΑΜΕΤΡΩΝ
                 </button>
              </div>
+
+             {/* TACTICAL CATEGORY MANAGER */}
+             <div className="bg-slate-900 p-6 sm:p-8 rounded-2xl border border-slate-800 shadow-xl max-w-4xl">
+                <h3 className="text-lg sm:text-xl font-black mb-2 text-white flex items-center gap-2"><Palette className="text-purple-500"/> Στήσιμο Μενού (Κατηγορίες)</h3>
+                <p className="text-slate-500 text-xs sm:text-sm font-bold mb-6 sm:mb-8">Άλλαξε τη σειρά εμφάνισης και τα χρώματα για τα κουμπιά των κατηγοριών στο κινητό του πελάτη.</p>
+                
+                {catSettings.length === 0 ? (
+                    <div className="p-6 bg-slate-950 border border-slate-800 rounded-xl text-center text-slate-500 font-bold text-sm">Προσθέστε πρώτα προϊόντα στο Οπλοστάσιο (Menu) για να εμφανιστούν εδώ οι κατηγορίες.</div>
+                ) : (
+                    <div className="space-y-3 mb-8">
+                        {catSettings.map((cat, index) => (
+                            <div key={cat.name} className="flex flex-col sm:flex-row sm:items-center gap-4 bg-slate-950 p-4 rounded-xl border border-slate-800">
+                                {/* Όνομα Κατηγορίας & Βελάκια */}
+                                <div className="flex items-center gap-3 flex-1">
+                                    <div className="flex flex-col gap-1">
+                                        <button onClick={() => moveCatUp(index)} className="bg-slate-800 text-slate-400 hover:text-white p-1 rounded transition-colors"><ArrowUp size={14}/></button>
+                                        <button onClick={() => moveCatDown(index)} className="bg-slate-800 text-slate-400 hover:text-white p-1 rounded transition-colors"><ArrowDown size={14}/></button>
+                                    </div>
+                                    <span className="font-black text-lg text-white uppercase tracking-tighter">{cat.name}</span>
+                                </div>
+                                
+                                {/* Επιλογή Χρωμάτων */}
+                                <div className="flex items-center gap-4 bg-slate-900 p-2 rounded-lg border border-slate-800">
+                                    <div className="flex items-center gap-2">
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase">Φοντο</label>
+                                        <input type="color" className="w-8 h-8 rounded cursor-pointer bg-transparent border-0 outline-none" value={cat.bg_color} onChange={e => { const newArr = [...catSettings]; newArr[index].bg_color = e.target.value; setCatSettings(newArr); }} />
+                                    </div>
+                                    <div className="w-px h-6 bg-slate-800"></div>
+                                    <div className="flex items-center gap-2">
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase">Γραμματα</label>
+                                        <input type="color" className="w-8 h-8 rounded cursor-pointer bg-transparent border-0 outline-none" value={cat.text_color} onChange={e => { const newArr = [...catSettings]; newArr[index].text_color = e.target.value; setCatSettings(newArr); }} />
+                                    </div>
+                                </div>
+
+                                {/* Live Preview */}
+                                <div className="w-full sm:w-32 h-12 flex items-center justify-center font-black uppercase text-xs rounded-lg shadow-inner" style={{ backgroundColor: cat.bg_color, color: cat.text_color }}>
+                                    PREVIEW
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                <button onClick={updateCategorySettings} className="w-full sm:w-auto bg-purple-600 text-white px-8 py-4 rounded-lg font-black uppercase tracking-widest hover:bg-purple-500 transition-all active:scale-95 text-sm flex justify-center items-center gap-2 shadow-lg shadow-purple-600/20">
+                    ΕΝΗΜΕΡΩΣΗ ΚΑΤΗΓΟΡΙΩΝ
+                </button>
+             </div>
           </div>
         )}
+
       </main>
 
+      {/* QR MODAL */}
       {isQRModalOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
            <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md" onClick={() => setIsQRModalOpen(false)}></div>
