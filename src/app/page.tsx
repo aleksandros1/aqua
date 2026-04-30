@@ -1,17 +1,109 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from './lib/supabase'; 
 import { 
   ShoppingBag, ChevronLeft, Plus, Coffee, Umbrella, MapPin, 
   BellRing, CreditCard, Banknote, Smartphone, SplitSquareHorizontal, 
-  Gift, X, RotateCcw, Zap, Timer, CheckCircle2, WifiOff, RefreshCw, Hand, Info
+  Gift, X, RotateCcw, Zap, Timer, CheckCircle2, WifiOff, RefreshCw, Hand, Info, ScanLine, Camera
 } from 'lucide-react';
 
 type MenuItem = { id: number; name: string; price: number; category: string; description?: string; is_available: boolean; options?: string; store_id: string; };
 type CartItem = MenuItem & { cartId: number; uniqueName: string; quantity: number; };
 type UmbrellaType = { id: number; number: string; store_id: string; };
 type StoreDetails = { id: string; name: string; slug: string; primary_color: string; bg_color: string; };
+
+// --- INTERACTIVE CANVAS ANIMATION COMPONENT ---
+const FancyBackground = ({ themeColor }: { themeColor: string }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let particlesArray: any[] = [];
+    let w = canvas.width = window.innerWidth;
+    let h = canvas.height = window.innerHeight;
+
+    const mouse = { x: w / 2, y: h / 2, radius: 150 };
+
+    window.addEventListener('mousemove', (e) => { mouse.x = e.x; mouse.y = e.y; });
+    window.addEventListener('touchmove', (e) => { mouse.x = e.touches[0].clientX; mouse.y = e.touches[0].clientY; });
+    window.addEventListener('resize', () => { w = canvas.width = window.innerWidth; h = canvas.height = window.innerHeight; init(); });
+
+    class Particle {
+      x: number; y: number; size: number; speedX: number; speedY: number;
+      constructor() {
+        this.x = Math.random() * w;
+        this.y = Math.random() * h;
+        this.size = Math.random() * 2 + 0.5;
+        this.speedX = Math.random() * 2 - 1;
+        this.speedY = Math.random() * 2 - 1;
+      }
+      update() {
+        this.x += this.speedX;
+        this.y += this.speedY;
+        if (this.x > w || this.x < 0) this.speedX = -this.speedX;
+        if (this.y > h || this.y < 0) this.speedY = -this.speedY;
+
+        // Interaction
+        let dx = mouse.x - this.x;
+        let dy = mouse.y - this.y;
+        let distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance < mouse.radius) {
+          const forceDirectionX = dx / distance;
+          const forceDirectionY = dy / distance;
+          const force = (mouse.radius - distance) / mouse.radius;
+          this.x -= forceDirectionX * force * 3;
+          this.y -= forceDirectionY * force * 3;
+        }
+      }
+      draw() {
+        if (!ctx) return;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        ctx.fillStyle = themeColor;
+        ctx.fill();
+      }
+    }
+
+    function init() {
+      particlesArray = [];
+      const numberOfParticles = (h * w) / 8000; // adjust density
+      for (let i = 0; i < numberOfParticles; i++) particlesArray.push(new Particle());
+    }
+
+    function animate() {
+      if (!ctx) return;
+      ctx.clearRect(0, 0, w, h);
+      for (let i = 0; i < particlesArray.length; i++) {
+        particlesArray[i].update();
+        particlesArray[i].draw();
+        for (let j = i; j < particlesArray.length; j++) {
+          const dx = particlesArray[i].x - particlesArray[j].x;
+          const dy = particlesArray[i].y - particlesArray[j].y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 100) {
+            ctx.beginPath();
+            ctx.strokeStyle = `${themeColor}${Math.floor((1 - dist/100) * 100).toString(16).padStart(2, '0')}`;
+            ctx.lineWidth = 0.5;
+            ctx.moveTo(particlesArray[i].x, particlesArray[i].y);
+            ctx.lineTo(particlesArray[j].x, particlesArray[j].y);
+            ctx.stroke();
+          }
+        }
+      }
+      requestAnimationFrame(animate);
+    }
+    init();
+    animate();
+  }, [themeColor]);
+
+  return <canvas ref={canvasRef} className="absolute inset-0 z-0 pointer-events-auto mix-blend-screen opacity-60" />;
+};
+
 
 export default function CustomerPage() {
   const [storeSlug, setStoreSlug] = useState<string | null>(null);
@@ -37,6 +129,7 @@ export default function CustomerPage() {
   const [selectedOptions, setSelectedOptions] = useState<string[]>([]);
   const [isRepeatModalOpen, setIsRepeatModalOpen] = useState(false);
   const [isServedVisible, setIsServedVisible] = useState(false);
+  const [showQRModal, setShowQRModal] = useState(false);
 
   // Σύστημα Ειδοποιήσεων
   const [toast, setToast] = useState<{ title: string; desc: string; icon: React.ReactNode; color: string } | null>(null);
@@ -45,12 +138,10 @@ export default function CustomerPage() {
   const showToast = (title: string, desc: string, type: 'success' | 'alert' | 'gift' = 'success') => {
       let icon = <CheckCircle2 size={24} />;
       let color = 'bg-emerald-500';
-      
       if (type === 'gift') { icon = <Gift size={24} />; color = 'bg-purple-600'; }
       if (type === 'alert') { icon = <BellRing size={24} />; color = 'bg-cyan-600'; }
-
       setToast({ title, desc, icon, color });
-      setTimeout(() => setToast(null), 4000); // Κλείνει αυτόματα σε 4 δευτερόλεπτα
+      setTimeout(() => setToast(null), 4000); 
   };
 
   useEffect(() => {
@@ -159,11 +250,8 @@ export default function CustomerPage() {
     const { error } = await supabase.from('orders').insert([orderPayload]);
     if (!error) {
       if (!isGiftMode) { localStorage.setItem('aqua_last_order', JSON.stringify(itemsToSubmit)); setLastOrder(itemsToSubmit); }
-      
-      // Νέα Ειδοποίηση Ανάλογα τον Τύπο
       if (isGiftMode) showToast("Το Κέρασμα Εστάλη!", `Ο Barista το ετοιμάζει για το τραπέζι ${targetUmbrella}.`, 'gift');
       else showToast("Η Παραγγελία Εστάλη!", "Το προσωπικό έλαβε την παραγγελία σας.", 'success');
-
       setCart([]); setIsCheckoutOpen(false); setIsGiftMode(false); setTargetUmbrella(''); setIsRepeatModalOpen(false);
     } else {
         showToast("Σφάλμα Δικτύου", "Η παραγγελία δεν εστάλη. Προσπαθήστε ξανά.", "alert");
@@ -175,10 +263,7 @@ export default function CustomerPage() {
       if (pendingOrderStr) {
           const pendingOrder = JSON.parse(pendingOrderStr);
           const { error } = await supabase.from('orders').insert([pendingOrder]);
-          if (!error) {
-              localStorage.removeItem('aqua_pending_order');
-              showToast("Συγχρονισμός Επιτυχής", "Οι εκκρεμείς παραγγελίες σας εστάλησαν.");
-          }
+          if (!error) { localStorage.removeItem('aqua_pending_order'); showToast("Συγχρονισμός Επιτυχής", "Οι εκκρεμείς παραγγελίες σας εστάλησαν."); }
       }
       const pendingRequestStr = localStorage.getItem('aqua_pending_request');
       if (pendingRequestStr) {
@@ -201,7 +286,6 @@ export default function CustomerPage() {
     const { error } = await supabase.from('service_requests').insert([requestPayload]);
     if (!error) { 
         setIsServiceOpen(false); 
-        // Νέα Ειδοποίηση για Κλήση / Λογαριασμό
         showToast("Ο Σερβιτόρος Ειδοποιήθηκε", method === 'ΚΛΗΣΗ (ΑΠΛΗ)' ? "Έρχεται στο τραπέζι σας." : `Έρχεται με το λογαριασμό (${method}).`, 'alert');
     }
   };
@@ -248,10 +332,48 @@ export default function CustomerPage() {
       return <div className="fixed inset-0 flex items-center justify-center bg-slate-50"><div className="w-10 h-10 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin"></div></div>;
   }
 
+  // --- LANDING PAGE (ΑΝ ΔΕΝ ΕΧΕΙ ΣΚΑΝΑΡΕΙ ΟΜΠΡΕΛΑ) ---
+  if (!umbrellaNumber && storeDetails) {
+    return (
+      <div className="fixed inset-0 bg-slate-950 flex flex-col items-center justify-center overflow-hidden">
+         {/* Η 3D Canvas Animation */}
+         <FancyBackground themeColor={themeColor} />
+         
+         <div className="relative z-10 text-center px-6 flex flex-col items-center max-w-sm w-full animate-in zoom-in-95 duration-700">
+            <div className="w-20 h-20 bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl flex items-center justify-center mb-6 shadow-2xl">
+                <Coffee size={40} style={{ color: themeColor }} />
+            </div>
+            
+            <h1 className="text-5xl font-black text-white mb-2 tracking-tighter uppercase drop-shadow-lg">
+                {storeDetails.name}
+            </h1>
+            <p className="text-slate-400 mb-12 uppercase tracking-[0.3em] text-xs font-bold">Interactive Experience</p>
+
+            <button onClick={() => setShowQRModal(true)} className="w-full flex items-center justify-center gap-3 py-5 rounded-2xl font-black uppercase tracking-widest text-sm transition-all active:scale-95 shadow-[0_0_30px_rgba(0,0,0,0.5)]" style={{ backgroundColor: themeColor, color: themeTextHex, boxShadow: `0 0 40px ${themeColor}40` }}>
+               <ScanLine size={20} /> ΣΚΑΝΑΡΕ ΤΟ QR ΣΟΥ
+            </button>
+         </div>
+
+         {/* Modal Εξήγησης για Σκανάρισμα */}
+         {showQRModal && (
+            <div className="fixed inset-0 z-50 flex items-end justify-center">
+               <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" onClick={() => setShowQRModal(false)}></div>
+               <div className="bg-slate-900 border-t border-slate-800 w-full p-8 rounded-t-[2.5rem] relative z-10 animate-in slide-in-from-bottom-full duration-300 flex flex-col items-center text-center">
+                  <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mb-6 text-white"><Camera size={28}/></div>
+                  <h3 className="text-2xl font-black text-white mb-3">Ανοίξτε την Κάμερα</h3>
+                  <p className="text-slate-400 font-medium mb-8 text-sm">Βγείτε από την εφαρμογή, ανοίξτε την κάμερα του κινητού σας και στοχεύστε το τετράγωνο σηματάκι (QR Code) που βρίσκεται στο τραπέζι ή την ομπρέλα σας για να παραγγείλετε!</p>
+                  <button onClick={() => setShowQRModal(false)} className="bg-slate-800 text-white w-full py-4 rounded-xl font-bold uppercase tracking-widest text-xs">Ενταξει, καταλαβα</button>
+               </div>
+            </div>
+         )}
+      </div>
+    );
+  }
+
+  // --- ΚΑΝΟΝΙΚΟ ΜΕΝΟΥ (ΑΦΟΥ ΣΚΑΝΑΡΕΙ) ---
   return (
     <div className={`fixed inset-0 w-full h-full font-sans flex flex-col overflow-hidden transition-colors duration-500 ${textColor}`} style={{ backgroundColor: dynamicBgColor }}>
       
-      {/* TOAST NOTIFICATION CONTAINER (ΝΕΟ) */}
       {toast && (
           <div className={`fixed top-4 left-4 right-4 z-[100] ${toast.color} text-white p-4 rounded-2xl shadow-2xl flex items-start gap-3 animate-in slide-in-from-top-4 fade-in duration-300`}>
              <div className="shrink-0 mt-0.5">{toast.icon}</div>
@@ -381,7 +503,6 @@ export default function CustomerPage() {
         )}
       </main>
 
-      {/* --- MODAL ΛΟΓΑΡΙΑΣΜΟΥ --- */}
       {isServiceOpen && (
         <div className="fixed inset-0 z-50 flex items-end justify-center">
            <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-md" onClick={() => setIsServiceOpen(false)}></div>
@@ -412,7 +533,6 @@ export default function CustomerPage() {
                  </div>
                </button>
              </div>
-             
              <button onClick={() => setIsServiceOpen(false)} className={`w-full py-4 rounded-full font-black uppercase tracking-widest active:scale-95 transition-all ${isDarkTheme ? 'bg-slate-800 text-white hover:bg-slate-700' : 'bg-slate-100 text-slate-900 hover:bg-slate-200'}`}>ΑΚΥΡΩΣΗ</button>
            </div>
         </div>
