@@ -125,8 +125,11 @@ export default function CustomerPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const store = params.get('store'); const umbrella = params.get('umbrella');
-    if (store) setStoreSlug(store); if (umbrella) setUmbrellaNumber(umbrella);
+    const store = params.get('store')?.trim(); // Δεν κάνουμε toLowerCase εδώ, αφήνουμε τη βάση να το λύσει!
+    const umbrella = params.get('umbrella')?.trim();
+    
+    if (store) setStoreSlug(store); 
+    if (umbrella) setUmbrellaNumber(umbrella);
 
     const savedOrder = localStorage.getItem('aqua_last_order');
     if (savedOrder) setLastOrder(JSON.parse(savedOrder));
@@ -144,13 +147,31 @@ export default function CustomerPage() {
   }, []);
 
   async function fetchStoreData(slug: string) {
-      const { data: storeData } = await supabase.from('stores').select('*').eq('slug', slug).single();
-      if (storeData) {
-          setStoreDetails(storeData); fetchMenu(storeData.id); fetchUmbrellas(storeData.id);
-          const menuSub = supabase.channel(`public:menu:${storeData.id}`).on('postgres_changes', { event: '*', schema: 'public', table: 'menu', filter: `store_id=eq.${storeData.id}` }, () => fetchMenu(storeData.id)).subscribe();
-          const umbSub = supabase.channel(`public:umbrellas:${storeData.id}`).on('postgres_changes', { event: '*', schema: 'public', table: 'umbrellas', filter: `store_id=eq.${storeData.id}` }, () => fetchUmbrellas(storeData.id)).subscribe();
-          const storeSub = supabase.channel(`public:stores:${storeData.id}`).on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'stores', filter: `id=eq.${storeData.id}` }, (payload) => setStoreDetails(payload.new as StoreDetails)).subscribe();
-          return () => { supabase.removeChannel(menuSub); supabase.removeChannel(umbSub); supabase.removeChannel(storeSub); };
+      try {
+          // Το "ilike" λέει στη βάση να βρει το μαγαζί είτε είναι γραμμένο PETA, peta, ή Peta!
+          const { data: storeData, error } = await supabase.from('stores').select('*').ilike('slug', slug).single();
+          
+          if (error) {
+              console.error("Supabase Error:", error);
+              alert("Σφάλμα επικοινωνίας: " + error.message);
+              setStoreSlug(null);
+              return;
+          }
+
+          if (storeData) {
+              setStoreDetails(storeData); fetchMenu(storeData.id); fetchUmbrellas(storeData.id);
+              const menuSub = supabase.channel(`public:menu:${storeData.id}`).on('postgres_changes', { event: '*', schema: 'public', table: 'menu', filter: `store_id=eq.${storeData.id}` }, () => fetchMenu(storeData.id)).subscribe();
+              const umbSub = supabase.channel(`public:umbrellas:${storeData.id}`).on('postgres_changes', { event: '*', schema: 'public', table: 'umbrellas', filter: `store_id=eq.${storeData.id}` }, () => fetchUmbrellas(storeData.id)).subscribe();
+              const storeSub = supabase.channel(`public:stores:${storeData.id}`).on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'stores', filter: `id=eq.${storeData.id}` }, (payload) => setStoreDetails(payload.new as StoreDetails)).subscribe();
+              return () => { supabase.removeChannel(menuSub); supabase.removeChannel(umbSub); supabase.removeChannel(storeSub); };
+          } else {
+              alert("Σφάλμα: Το κατάστημα δεν βρέθηκε! Ελέγξτε το Link.");
+              setStoreSlug(null);
+          }
+      } catch (err) {
+          console.error("Critical Error Fetching Store:", err);
+          alert("Προέκυψε κρίσιμο σφάλμα κατά την ανάγνωση του καταστήματος.");
+          setStoreSlug(null);
       }
   }
 
@@ -312,17 +333,17 @@ export default function CustomerPage() {
   // LOADING STATE (Αν υπάρχει slug αλλά φορτώνει δεδομένα)
   // ==========================================
   if (!storeDetails && storeSlug) {
-      return <div className="fixed inset-0 flex items-center justify-center bg-slate-50"><div className="w-10 h-10 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin"></div></div>;
+      return <div className="fixed inset-0 flex items-center justify-center bg-slate-950"><div className="w-10 h-10 border-4 border-slate-800 border-t-cyan-500 rounded-full animate-spin"></div></div>;
   }
 
   const categoriesInMenu = Array.from(new Set(menu.map(m => m.category)));
   const availableGiftUmbrellas = umbrellas.filter(u => u.number !== umbrellaNumber);
 
   const themeColor = storeDetails?.primary_color || '#06b6d4';
-  const dynamicBgColor = storeDetails?.bg_color || '#f8fafc';
+  const dynamicBgColor = storeDetails?.bg_color || '#020617'; // Προεπιλογή σκούρο για Premium Look
   
   const getContrast = (hexcolor: string) => {
-      if (!hexcolor) return 'light'; hexcolor = hexcolor.replace("#", "");
+      if (!hexcolor) return 'dark'; hexcolor = hexcolor.replace("#", "");
       if (hexcolor.length === 3) hexcolor = hexcolor.split('').map(x => x + x).join('');
       const r = parseInt(hexcolor.substring(0,2), 16), g = parseInt(hexcolor.substring(2,4), 16), b = parseInt(hexcolor.substring(4,6), 16);
       return ((r*299)+(g*587)+(b*114))/1000 >= 128 ? 'light' : 'dark';
@@ -330,28 +351,28 @@ export default function CustomerPage() {
   
   const isDarkTheme = getContrast(dynamicBgColor) === 'dark';
   const textColor = isDarkTheme ? 'text-white' : 'text-slate-900';
-  const cardBg = isDarkTheme ? 'bg-slate-900/60 border-slate-700 backdrop-blur-md' : 'bg-white border-slate-100';
-  const isThemeColorDark = getContrast(themeColor) === 'dark';
-  const themeTextHex = isThemeColorDark ? '#ffffff' : '#0f172a';
-  const safeThemeColor = (isDarkTheme && isThemeColorDark) ? '#ffffff' : themeColor;
+  const themeTextHex = getContrast(themeColor) === 'dark' ? '#ffffff' : '#0f172a';
 
-  // Αλεξίσφαιρο Λογικό για Κατηγορίες (αγνοεί τόνους/κεφαλαία)
   const normalizeText = (text: string) => {
       if (!text) return "";
       return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
   };
 
-  let rawPrefs = storeDetails?.category_prefs || [];
-  if (typeof rawPrefs === 'string') {
-      try { rawPrefs = JSON.parse(rawPrefs); } catch (e) { rawPrefs = []; }
+  // Προστασία στην ανάγνωση των ρυθμίσεων 
+  let rawPrefs = storeDetails?.category_prefs;
+  let prefsArray: any[] = [];
+  if (Array.isArray(rawPrefs)) {
+      prefsArray = rawPrefs;
+  } else if (typeof rawPrefs === 'string') {
+      try { prefsArray = JSON.parse(rawPrefs); } catch (e) { prefsArray = []; }
   }
   
   const displayCategories = categoriesInMenu.map(catName => {
-      const pref = rawPrefs.find((p:any) => normalizeText(p.name) === normalizeText(catName));
+      const pref = prefsArray.find((p:any) => normalizeText(p.name) === normalizeText(catName));
       return {
           name: catName,
-          bg_color: pref?.bg_color || (isDarkTheme ? '#1e293b' : '#ffffff'), 
-          text_color: pref?.text_color || (isDarkTheme ? '#ffffff' : '#0f172a'),
+          bg_color: pref?.bg_color || themeColor, 
+          text_color: pref?.text_color || '#ffffff',
           sort_order: pref?.sort_order ?? 999
       };
   }).sort((a, b) => a.sort_order - b.sort_order);
@@ -361,26 +382,26 @@ export default function CustomerPage() {
   // ==========================================
   if (!umbrellaNumber && storeDetails) {
     return (
-      <div className="fixed inset-0 bg-slate-950 flex flex-col items-center justify-center overflow-hidden">
+      <div className="fixed inset-0 flex flex-col items-center justify-center overflow-hidden" style={{ backgroundColor: dynamicBgColor }}>
          <FancyBackground themeColor={themeColor} />
          <div className="relative z-10 text-center px-6 flex flex-col items-center max-w-sm w-full animate-in zoom-in-95 duration-700">
-            <div className="w-20 h-20 bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl flex items-center justify-center mb-6 shadow-2xl">
-                <Coffee size={40} style={{ color: themeColor }} />
+            <div className="w-20 h-20 bg-white/5 backdrop-blur-xl border border-white/10 rounded-[2rem] flex items-center justify-center mb-6 shadow-2xl">
+                <Coffee size={32} style={{ color: themeColor }} />
             </div>
-            <h1 className="text-5xl font-black text-white mb-2 tracking-tighter uppercase drop-shadow-lg">{storeDetails.name}</h1>
-            <p className="text-slate-400 mb-12 uppercase tracking-[0.3em] text-xs font-bold">Interactive Experience</p>
-            <button onClick={() => setShowQRModal(true)} className="w-full flex items-center justify-center gap-3 py-5 rounded-2xl font-black uppercase tracking-widest text-sm transition-all active:scale-95 shadow-[0_0_30px_rgba(0,0,0,0.5)]" style={{ backgroundColor: themeColor, color: themeTextHex, boxShadow: `0 0 40px ${themeColor}40` }}>
-               <ScanLine size={20} /> ΣΚΑΝΑΡΕ ΤΟ QR ΣΟΥ
+            <h1 className="text-5xl font-black mb-2 tracking-tighter uppercase drop-shadow-2xl" style={{ color: textColor }}>{storeDetails.name}</h1>
+            <p className="mb-12 uppercase tracking-[0.4em] text-[9px] font-black opacity-50" style={{ color: textColor }}>Interactive Experience</p>
+            <button onClick={() => setShowQRModal(true)} className="w-full flex items-center justify-center gap-3 py-5 rounded-2xl font-black uppercase tracking-[0.2em] text-xs transition-all active:scale-95 backdrop-blur-md" style={{ backgroundColor: themeColor, color: themeTextHex, boxShadow: `0 10px 40px -10px ${themeColor}` }}>
+               <ScanLine size={18} /> ΣΚΑΝΑΡΕ ΤΟ QR ΣΟΥ
             </button>
          </div>
          {showQRModal && (
             <div className="fixed inset-0 z-50 flex items-end justify-center">
-               <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" onClick={() => setShowQRModal(false)}></div>
-               <div className="bg-slate-900 border-t border-slate-800 w-full p-8 rounded-t-[2.5rem] relative z-10 animate-in slide-in-from-bottom-full duration-300 flex flex-col items-center text-center">
-                  <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mb-6 text-white"><Camera size={28}/></div>
-                  <h3 className="text-2xl font-black text-white mb-3">Ανοίξτε την Κάμερα</h3>
-                  <p className="text-slate-400 font-medium mb-8 text-sm">Βγείτε από την εφαρμογή, ανοίξτε την κάμερα του κινητού σας και στοχεύστε το τετράγωνο σηματάκι (QR Code) που βρίσκεται στο τραπέζι ή την ομπρέλα σας για να παραγγείλετε!</p>
-                  <button onClick={() => setShowQRModal(false)} className="bg-slate-800 text-white w-full py-4 rounded-xl font-bold uppercase tracking-widest text-xs">Ενταξει, καταλαβα</button>
+               <div className="absolute inset-0 bg-black/60 backdrop-blur-md" onClick={() => setShowQRModal(false)}></div>
+               <div className="bg-slate-900/90 backdrop-blur-xl border-t border-white/10 w-full p-8 rounded-t-[2.5rem] relative z-10 animate-in slide-in-from-bottom-full duration-300 flex flex-col items-center text-center shadow-2xl">
+                  <div className="w-16 h-16 bg-white/5 border border-white/10 rounded-full flex items-center justify-center mb-6 text-white"><Camera size={28}/></div>
+                  <h3 className="text-2xl font-black text-white mb-3 tracking-tighter">Ανοίξτε την Κάμερα</h3>
+                  <p className="text-slate-400 font-medium mb-8 text-sm">Βγείτε από την εφαρμογή, ανοίξτε την κάμερα του κινητού σας και στοχεύστε το τετράγωνο σηματάκι (QR Code) που βρίσκεται στο τραπέζι ή την ομπρέλα σας!</p>
+                  <button onClick={() => setShowQRModal(false)} className="bg-white/10 text-white border border-white/5 w-full py-4 rounded-xl font-black uppercase tracking-[0.2em] text-[10px] hover:bg-white/20 transition-all">Ενταξει, καταλαβα</button>
                </div>
             </div>
          )}
@@ -393,74 +414,82 @@ export default function CustomerPage() {
   // ==========================================
   return (
     <div className={`fixed inset-0 w-full h-full font-sans flex flex-col overflow-hidden transition-colors duration-500 ${textColor}`} style={{ backgroundColor: dynamicBgColor }}>
+      {/* Dynamic Ambient Background Glow */}
+      <div className="absolute top-0 left-0 w-full h-96 opacity-20 pointer-events-none" style={{ background: `radial-gradient(circle at 50% -20%, ${themeColor}, transparent 70%)` }}></div>
+
       {toast && (
-          <div className={`fixed top-4 left-4 right-4 z-[100] ${toast.color} text-white p-4 rounded-2xl shadow-2xl flex items-start gap-3 animate-in slide-in-from-top-4 fade-in duration-300`}>
+          <div className={`fixed top-4 left-4 right-4 z-[100] ${toast.color} text-white p-4 rounded-2xl shadow-2xl flex items-start gap-3 animate-in slide-in-from-top-4 fade-in duration-300 backdrop-blur-md bg-opacity-90 border border-white/10`}>
              <div className="shrink-0 mt-0.5">{toast.icon}</div>
              <div><p className="font-black text-sm uppercase tracking-widest">{toast.title}</p><p className="text-xs font-medium opacity-90">{toast.desc}</p></div>
           </div>
       )}
 
-      <div className="shrink-0 z-50">
+      <div className="shrink-0 z-50 relative">
         {!isOnline && ( <div className="bg-red-500 text-white p-2 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"><WifiOff size={14} /> Χωρις Συνδεση. Συνεχιστε κανονικα!</div> )}
         {activeOrder && activeOrder.status !== 'completed' && (
-          <div className={`p-4 animate-in slide-in-from-top duration-500 shadow-2xl transition-colors ${isServedVisible ? 'bg-emerald-500 text-white' : 'bg-slate-950 text-white'}`}>
+          <div className={`p-4 animate-in slide-in-from-top duration-500 shadow-2xl transition-all border-b border-white/5 backdrop-blur-xl ${isServedVisible ? 'bg-emerald-500/90 text-white' : 'bg-black/40 text-white'}`}>
              <div className="max-w-lg mx-auto flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="relative">
-                    {isServedVisible ? <CheckCircle2 size={24} className="text-white animate-in zoom-in duration-300"/> : <><div className="w-10 h-10 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: safeThemeColor, borderTopColor: 'transparent' }}></div><Coffee className="absolute inset-0 m-auto" size={16} style={{ color: safeThemeColor }}/></>}
+                    {isServedVisible ? <CheckCircle2 size={24} className="text-white animate-in zoom-in duration-300"/> : <><div className="w-10 h-10 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: themeColor, borderTopColor: 'transparent' }}></div><Coffee className="absolute inset-0 m-auto" size={16} style={{ color: themeColor }}/></>}
                   </div>
                   <div>
-                     <p className="text-[9px] font-black uppercase tracking-[0.2em] transition-colors" style={{ color: isServedVisible ? '#d1fae5' : safeThemeColor }}>Εξελιξη Παραγγελιας</p>
+                     <p className="text-[9px] font-black uppercase tracking-[0.3em] transition-colors opacity-70" style={{ color: isServedVisible ? '#fff' : themeColor }}>Εξελιξη Παραγγελιας</p>
                      <p className="text-xs font-bold uppercase tracking-tight">{isServedVisible ? 'ΣΕΡΒΙΡΙΣΤΗΚΕ!' : <>{activeOrder.status === 'new' && 'Παραληφθηκε...'}{activeOrder.status === 'preparing' && 'Ο Barista ετοιμαζει...'}{activeOrder.status === 'shipped' && 'Ερχεται στην ομπρελα!'}</>}</p>
                   </div>
                 </div>
                 {!isServedVisible && (
-                    <div className="flex gap-1.5">
-                       <div className={`w-6 h-1 rounded-full ${activeOrder.status === 'new' || activeOrder.status === 'preparing' || activeOrder.status === 'shipped' ? '' : 'bg-slate-800'}`} style={activeOrder.status === 'new' || activeOrder.status === 'preparing' || activeOrder.status === 'shipped' ? { backgroundColor: themeColor } : {}}></div>
-                       <div className={`w-6 h-1 rounded-full ${activeOrder.status === 'preparing' || activeOrder.status === 'shipped' ? '' : 'bg-slate-800'}`} style={activeOrder.status === 'preparing' || activeOrder.status === 'shipped' ? { backgroundColor: themeColor } : {}}></div>
-                       <div className={`w-6 h-1 rounded-full ${activeOrder.status === 'shipped' ? '' : 'bg-slate-800'}`} style={activeOrder.status === 'shipped' ? { backgroundColor: themeColor, boxShadow: `0 0 10px ${themeColor}` } : {}}></div>
+                    <div className="flex gap-1.5 opacity-80">
+                       <div className={`w-6 h-1 rounded-full ${activeOrder.status === 'new' || activeOrder.status === 'preparing' || activeOrder.status === 'shipped' ? '' : 'bg-white/10'}`} style={activeOrder.status === 'new' || activeOrder.status === 'preparing' || activeOrder.status === 'shipped' ? { backgroundColor: themeColor } : {}}></div>
+                       <div className={`w-6 h-1 rounded-full ${activeOrder.status === 'preparing' || activeOrder.status === 'shipped' ? '' : 'bg-white/10'}`} style={activeOrder.status === 'preparing' || activeOrder.status === 'shipped' ? { backgroundColor: themeColor } : {}}></div>
+                       <div className={`w-6 h-1 rounded-full ${activeOrder.status === 'shipped' ? '' : 'bg-white/10'}`} style={activeOrder.status === 'shipped' ? { backgroundColor: themeColor, boxShadow: `0 0 10px ${themeColor}` } : {}}></div>
                     </div>
                 )}
              </div>
           </div>
         )}
 
-        <header className={`px-4 sm:px-6 py-6 sm:py-8 flex justify-between items-center backdrop-blur-2xl border-b border-white/10`} style={{ backgroundColor: `${dynamicBgColor}D9` }}>
-          <h1 className="text-3xl font-black tracking-tighter italic line-clamp-1 flex-1 pr-4 drop-shadow-sm">{storeDetails ? storeDetails.name : 'AQUA'}<span style={{ color: safeThemeColor }}>.</span></h1>
+        <header className="px-4 sm:px-6 py-6 sm:py-8 flex justify-between items-center relative">
+          <h1 className="text-3xl font-black tracking-tighter italic line-clamp-1 flex-1 pr-4 drop-shadow-md animate-in fade-in slide-in-from-top-3 duration-1000 ease-out">{storeDetails ? storeDetails.name : 'AQUA'}<span style={{ color: themeColor }}>.</span></h1>
           <div className="flex items-center gap-2 shrink-0">
               {umbrellaNumber && (
-                <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full shadow-sm border ${isDarkTheme ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-600'}`}>
-                    <MapPin size={14} style={{ color: safeThemeColor }} />
-                    <span className="text-xs font-black uppercase tracking-widest">Ομπρελα {umbrellaNumber}</span>
+                <div className={`flex items-center gap-2 px-4 py-2 rounded-full shadow-lg border backdrop-blur-md ${isDarkTheme ? 'bg-white/5 border-white/10 text-white' : 'bg-black/5 border-black/10 text-black'}`}>
+                    <MapPin size={14} style={{ color: themeColor }} />
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em]">Ομπρελα {umbrellaNumber}</span>
                 </div>
               )}
           </div>
         </header>
       </div>
 
-      <main className="flex-1 overflow-y-auto overscroll-y-none px-4 sm:px-6 py-6 pb-40 w-full max-w-lg mx-auto">
+      <main className="flex-1 overflow-y-auto overscroll-y-none px-4 sm:px-6 py-2 pb-40 w-full max-w-lg mx-auto relative z-10">
+        {/* PREMIUM ACTION BUTTONS */}
         {umbrellaNumber && !activeCategory && (
-           <div className="space-y-3 mb-8">
+           <div className="space-y-4 mb-10">
               {lastOrder && totalOwed > 0 && (
-                <button onClick={() => setIsRepeatModalOpen(true)} className="w-full p-6 rounded-[2.5rem] font-black flex items-center justify-between shadow-xl active:scale-95 transition-all border-b-4 border-black/20" style={{ backgroundColor: themeColor, color: themeTextHex }}>
-                  <div className="flex items-center gap-4">
-                    <div className="bg-white/20 p-2 rounded-xl"><RotateCcw size={20} /></div>
-                    <div className="text-left"><p className="text-[10px] uppercase opacity-80 italic">Θελεις το ιδιο;</p><p className="text-lg uppercase tracking-tighter">ΑΛΛΟ ΕΝΑ!</p></div>
+                <button onClick={() => setIsRepeatModalOpen(true)} className="w-full p-6 rounded-[2rem] font-black flex items-center justify-between shadow-2xl active:scale-95 transition-all overflow-hidden relative group border border-white/20" style={{ backgroundColor: themeColor, color: themeTextHex }}>
+                  <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                  <div className="flex items-center gap-4 relative z-10">
+                    <div className="bg-black/10 p-3 rounded-2xl backdrop-blur-sm"><RotateCcw size={22} /></div>
+                    <div className="text-left"><p className="text-[9px] uppercase tracking-[0.2em] opacity-80 mb-0.5">Θελεις το ιδιο;</p><p className="text-xl uppercase tracking-tighter leading-none">ΑΛΛΟ ΕΝΑ!</p></div>
                   </div>
-                  <Zap size={24} style={{ fill: themeTextHex, color: themeTextHex }} />
+                  <Zap size={28} className="relative z-10 opacity-90" style={{ fill: themeTextHex, color: themeTextHex }} />
                 </button>
               )}
-              <div className="grid grid-cols-2 gap-3">
-                <button onClick={() => setIsServiceOpen(true)} className={`p-4 rounded-3xl font-black flex flex-col items-center justify-center gap-2 text-xs shadow-lg active:scale-95 transition-all ${isDarkTheme ? 'bg-slate-800 text-white border border-slate-700' : 'bg-slate-900 text-white'}`}>
-                  <BellRing size={20} style={{ color: safeThemeColor }} />
-                  <span>ΛΟΓΑΡΙΑΣΜΟΣ {totalOwed > 0 ? `(${totalOwed.toFixed(2)}€)` : ''}</span>
+              <div className="grid grid-cols-2 gap-4">
+                <button onClick={() => setIsServiceOpen(true)} className={`relative overflow-hidden p-5 rounded-[2rem] font-black flex flex-col items-center justify-center gap-3 shadow-xl active:scale-95 transition-all border ${isDarkTheme ? 'bg-white/5 border-white/10 text-white' : 'bg-black/5 border-black/10 text-black'} backdrop-blur-xl group`}>
+                  <div className="absolute inset-0 opacity-20 group-hover:opacity-40 transition-opacity" style={{ background: `radial-gradient(circle at center, ${themeColor} 0%, transparent 70%)` }}></div>
+                  <div className="relative z-10 flex flex-col items-center gap-2">
+                      <BellRing size={24} style={{ color: themeColor }} />
+                      <span className="text-[10px] tracking-[0.2em] uppercase text-center leading-tight">ΛΟΓΑΡΙΑΣΜΟΣ<br/><span className="text-xs opacity-70 mt-1 block">{totalOwed > 0 ? `${totalOwed.toFixed(2)}€` : ''}</span></span>
+                  </div>
                 </button>
-                <div className="flex flex-col gap-3">
-                    <button onClick={() => callWaiter('ΚΛΗΣΗ (ΑΠΛΗ)')} className={`p-3 rounded-[1.2rem] font-black flex items-center justify-center gap-2 text-[10px] uppercase tracking-widest shadow-md active:scale-95 transition-all ${isDarkTheme ? 'bg-slate-800 text-slate-300 border border-slate-700' : 'bg-slate-100 text-slate-700'}`}>
-                        <Hand size={14} /> ΚΑΛΕΣΕ ΣΕΡΒΙΤΟΡΟ
+                <div className="flex flex-col gap-4">
+                    <button onClick={() => callWaiter('ΚΛΗΣΗ (ΑΠΛΗ)')} className={`flex-1 p-4 rounded-[1.5rem] font-black flex items-center justify-center gap-2 text-[9px] uppercase tracking-[0.2em] shadow-lg active:scale-95 transition-all border backdrop-blur-md hover:bg-white/10 ${isDarkTheme ? 'bg-white/5 border-white/10 text-slate-300' : 'bg-black/5 border-black/10 text-slate-700'}`}>
+                        <Hand size={16} /> ΣΕΡΒΙΤΟΡΟΣ
                     </button>
-                    <button onClick={() => { setIsGiftMode(true); setActiveCategory('Όλα'); }} className={`p-3 rounded-[1.2rem] font-black flex items-center justify-center gap-2 text-[10px] uppercase tracking-widest shadow-md active:scale-95 transition-all ${isDarkTheme ? 'bg-purple-900/40 text-purple-300 border border-purple-500/30' : 'bg-purple-100 text-purple-700 border border-purple-200'}`}>
-                        <Gift size={14} /> ΚΕΡΑΣΕ ΦΙΛΟ
+                    <button onClick={() => { setIsGiftMode(true); setActiveCategory('Όλα'); }} className={`flex-1 p-4 rounded-[1.5rem] font-black flex items-center justify-center gap-2 text-[9px] uppercase tracking-[0.2em] shadow-lg active:scale-95 transition-all border backdrop-blur-md hover:bg-purple-500/20 ${isDarkTheme ? 'bg-purple-500/10 border-purple-500/20 text-purple-300' : 'bg-purple-500/10 border-purple-500/20 text-purple-700'}`}>
+                        <Gift size={16} /> ΚΕΡΑΣΜΑ
                     </button>
                 </div>
               </div>
@@ -468,43 +497,52 @@ export default function CustomerPage() {
         )}
 
         {isGiftMode && (
-          <div className="bg-purple-500/10 border border-purple-500/20 p-4 rounded-2xl mb-6 animate-in slide-in-from-top duration-300 backdrop-blur-md">
-            <p className="text-purple-500 font-black text-xs uppercase mb-3 flex items-center justify-center gap-2 tracking-tight"><Gift size={16}/> Επιλεξε τραπεζι</p>
-            <div className="grid grid-cols-4 sm:grid-cols-5 gap-2 max-h-40 overflow-y-auto p-1 mb-3">
+          <div className="bg-purple-500/10 border border-purple-500/20 p-5 rounded-[2rem] mb-8 animate-in slide-in-from-top duration-300 backdrop-blur-xl shadow-2xl">
+            <p className="text-purple-400 font-black text-[10px] uppercase mb-4 flex items-center justify-center gap-2 tracking-[0.2em]"><Gift size={16}/> ΕΠΙΛΟΓΗ ΤΡΑΠΕΖΙΟΥ</p>
+            <div className="grid grid-cols-4 gap-3 max-h-48 overflow-y-auto p-1 mb-4">
                 {availableGiftUmbrellas.map(u => (
-                    <button key={u.id} onClick={() => setTargetUmbrella(u.number)} className={`p-3 rounded-xl font-black text-sm transition-all flex items-center justify-center ${targetUmbrella === u.number ? 'bg-purple-600 text-white scale-105 shadow-lg' : `${cardBg} ${textColor}`}`}>{u.number}</button>
+                    <button key={u.id} onClick={() => setTargetUmbrella(u.number)} className={`p-4 rounded-2xl font-black text-base transition-all flex items-center justify-center border ${targetUmbrella === u.number ? 'bg-purple-500 border-purple-400 text-white shadow-[0_0_20px_rgba(168,85,247,0.4)] scale-105' : isDarkTheme ? 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10' : 'bg-black/5 border-black/10 text-slate-700 hover:bg-black/10'}`}>{u.number}</button>
                 ))}
             </div>
-            <button onClick={() => {setIsGiftMode(false); setTargetUmbrella(''); setActiveCategory(null);}} className="w-full mt-2 py-2 text-[10px] font-bold text-purple-400 uppercase tracking-widest bg-purple-500/10 rounded-xl">Ακυρωση</button>
+            <button onClick={() => {setIsGiftMode(false); setTargetUmbrella(''); setActiveCategory(null);}} className="w-full py-3 text-[9px] font-black text-purple-400 uppercase tracking-[0.2em] bg-purple-500/10 rounded-xl hover:bg-purple-500/20 transition-colors">ΑΚΥΡΩΣΗ ΚΕΡΑΣΜΑΤΟΣ</button>
           </div>
         )}
 
-        {/* ΔΥΝΑΜΙΚΕΣ ΚΑΤΗΓΟΡΙΕΣ */}
+        {/* PREMIUM GLASSMORPHISM CATEGORIES */}
         {!activeCategory ? (
           <div className="grid grid-cols-2 gap-4">
             {displayCategories.map((cat, idx) => (
-              <button key={cat.name} onClick={() => setActiveCategory(cat.name)} className={`h-32 sm:h-36 rounded-[2rem] flex flex-col items-center justify-center shadow-lg font-black uppercase text-[15px] sm:text-lg transition-all active:scale-95 border-2 ${idx === 0 ? 'col-span-2' : ''}`} style={{ backgroundColor: cat.bg_color, color: cat.text_color, borderColor: cat.bg_color }}>
-                  {cat.name}
+              <button key={cat.name} onClick={() => setActiveCategory(cat.name)} className={`relative overflow-hidden h-36 rounded-[2rem] flex flex-col items-center justify-center shadow-xl transition-all active:scale-95 border backdrop-blur-xl group ${isDarkTheme ? 'bg-white/5 border-white/10' : 'bg-white/60 border-white/40'} ${idx === 0 ? 'col-span-2 h-44' : ''}`}>
+                  {/* Subtle Glowing Aura based on chosen category color */}
+                  <div className="absolute inset-0 opacity-30 group-hover:opacity-60 transition-opacity duration-700" style={{ background: `radial-gradient(circle at top left, ${cat.bg_color} 0%, transparent 80%)` }}></div>
+                  
+                  {/* Category Name */}
+                  <span className="font-black uppercase text-[13px] sm:text-[15px] tracking-[0.25em] z-10 drop-shadow-lg px-4 text-center leading-snug" style={{ color: textColor }}>
+                    {cat.name}
+                  </span>
+                  
+                  {/* Elegant Accent Line */}
+                  <div className="w-8 h-1 rounded-full mt-4 opacity-70 z-10 transition-all group-hover:w-16 shadow-lg" style={{ backgroundColor: cat.bg_color }}></div>
               </button>
             ))}
           </div>
         ) : (
-          <div className="animate-in fade-in slide-in-from-right-8 duration-300">
-            <button onClick={() => {setActiveCategory(null); setIsGiftMode(false);}} className="font-bold text-xs uppercase mb-6 flex items-center gap-1" style={{ color: safeThemeColor }}><ChevronLeft size={16}/> ΠΙΣΩ</button>
+          <div className="animate-in fade-in slide-in-from-right-8 duration-500">
+            <button onClick={() => {setActiveCategory(null); setIsGiftMode(false);}} className="font-black text-[10px] uppercase mb-8 flex items-center gap-1 tracking-[0.2em] opacity-70 hover:opacity-100 transition-opacity" style={{ color: textColor }}><ChevronLeft size={16}/> ΕΠΙΣΤΡΟΦΗ</button>
             <div className="space-y-4">
               {menu.filter(p => isGiftMode || p.category === activeCategory).map(product => (
-                <div key={product.id} className={`flex justify-between items-center p-4 rounded-[2rem] shadow-sm border group ${cardBg}`}>
-                  <div className="pl-2 pr-2">
-                    <h3 className="font-bold text-base sm:text-lg leading-tight">{product.name}</h3>
-                    <div className="flex items-center gap-2 mt-1.5">
-                        <span className="font-black" style={{ color: safeThemeColor }}>{Number(product.price).toFixed(2)}€</span>
+                <div key={product.id} className={`relative overflow-hidden flex justify-between items-center p-5 rounded-[2rem] shadow-lg border backdrop-blur-md transition-all group hover:border-white/20 ${isDarkTheme ? 'bg-white/5 border-white/10' : 'bg-white/60 border-white/40'}`}>
+                  <div className="pl-2 pr-4 relative z-10">
+                    <h3 className="font-black text-sm sm:text-base leading-tight tracking-wide mb-1" style={{ color: textColor }}>{product.name}</h3>
+                    <div className="flex items-center gap-3 mt-2">
+                        <span className="font-black text-sm" style={{ color: themeColor }}>{Number(product.price).toFixed(2)}€</span>
                         {product.options && product.options.trim() !== '' && (
-                           <span className={`text-[9px] px-2 py-0.5 rounded-lg font-bold uppercase tracking-widest ${isDarkTheme ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>+ ΕΠΙΛΟΓΕΣ</span>
+                           <span className={`text-[8px] px-2.5 py-1 rounded-full font-black uppercase tracking-[0.2em] border ${isDarkTheme ? 'bg-white/5 border-white/10 text-slate-400' : 'bg-black/5 border-black/10 text-slate-500'}`}>MODS</span>
                         )}
                     </div>
                   </div>
-                  <button disabled={isGiftMode && !targetUmbrella} onClick={() => handleAddToCartClick(product)} className={`w-12 h-12 shrink-0 rounded-full flex items-center justify-center transition-all shadow-sm ${isGiftMode ? 'bg-purple-600 text-white opacity-50' : isDarkTheme ? 'bg-slate-800 text-white hover:bg-slate-700' : 'bg-slate-50 text-slate-900 border border-slate-200'}`} style={!isGiftMode && !isDarkTheme ? { ':hover': { backgroundColor: themeColor, color: themeTextHex } } as any : {}}>
-                    <Plus size={20} />
+                  <button disabled={isGiftMode && !targetUmbrella} onClick={() => handleAddToCartClick(product)} className={`w-14 h-14 shrink-0 rounded-[1.2rem] flex items-center justify-center transition-all shadow-md active:scale-90 relative z-10 ${isGiftMode ? 'bg-purple-600/50 text-white' : isDarkTheme ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-black/5 text-black hover:bg-black/10'}`} style={!isGiftMode && !isDarkTheme ? { ':hover': { backgroundColor: themeColor, color: themeTextHex } } as any : {}}>
+                    <Plus size={22} />
                   </button>
                 </div>
               ))}
@@ -513,100 +551,106 @@ export default function CustomerPage() {
         )}
       </main>
 
+      {/* PREMIUM MODALS (Service / Repeat / Options / Checkout) */}
       {isServiceOpen && (
         <div className="fixed inset-0 z-50 flex items-end justify-center">
-           <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-md" onClick={() => setIsServiceOpen(false)}></div>
-           <div className={`w-full max-w-lg p-6 sm:p-8 rounded-t-[2.5rem] relative z-10 animate-in slide-in-from-bottom-full duration-300 shadow-2xl ${isDarkTheme ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}`}>
-             <div className="w-12 h-1.5 bg-slate-500/30 rounded-full mx-auto mb-6"></div>
+           <div className="absolute inset-0 bg-black/60 backdrop-blur-md" onClick={() => setIsServiceOpen(false)}></div>
+           <div className={`w-full max-w-lg p-8 rounded-t-[3rem] relative z-10 animate-in slide-in-from-bottom-full duration-500 shadow-2xl border-t ${isDarkTheme ? 'bg-slate-900/90 border-white/10 text-white backdrop-blur-xl' : 'bg-white/90 border-black/10 text-slate-900 backdrop-blur-xl'}`}>
+             <div className="w-12 h-1.5 bg-slate-500/30 rounded-full mx-auto mb-8"></div>
              <h2 className="text-2xl font-black mb-2 tracking-tighter">Εξόφληση Λογαριασμού</h2>
-             <p className={`text-xs font-bold uppercase tracking-widest mb-6 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>ΠΩΣ ΘΑ ΠΛΗΡΩΣΕΤΕ;</p>
-             <p className="text-5xl font-black text-center mb-8">{totalOwed.toFixed(2)}€</p>
-             <div className="grid grid-cols-2 gap-3 mb-6">
-               <button onClick={() => callWaiter('ΚΑΡΤΑ (POS)')} className={`p-4 rounded-2xl flex flex-col items-center justify-center gap-3 transition-all active:scale-95 shadow-sm border ${isDarkTheme ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
-                 <CreditCard size={28} style={{ color: safeThemeColor }}/> <span className="font-black text-[11px] uppercase tracking-widest">ΚΑΡΤΑ (POS)</span>
+             <p className={`text-[9px] font-black uppercase tracking-[0.3em] mb-8 ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>ΠΩΣ ΘΑ ΠΛΗΡΩΣΕΤΕ;</p>
+             <p className="text-6xl font-black text-center mb-10 tracking-tighter" style={{ color: themeColor }}>{totalOwed.toFixed(2)}<span className="text-3xl opacity-50">€</span></p>
+             <div className="grid grid-cols-2 gap-4 mb-8">
+               <button onClick={() => callWaiter('ΚΑΡΤΑ (POS)')} className={`p-5 rounded-[1.5rem] flex flex-col items-center justify-center gap-3 transition-all active:scale-95 shadow-lg border backdrop-blur-md hover:bg-white/5 ${isDarkTheme ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/5'}`}>
+                 <CreditCard size={28} style={{ color: themeColor }}/> <span className="font-black text-[10px] uppercase tracking-[0.2em]">ΚΑΡΤΑ</span>
                </button>
-               <button onClick={() => callWaiter('ΜΕΤΡΗΤΑ')} className={`p-4 rounded-2xl flex flex-col items-center justify-center gap-3 transition-all active:scale-95 shadow-sm border ${isDarkTheme ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
-                 <Banknote size={28} className="text-emerald-500"/> <span className="font-black text-[11px] uppercase tracking-widest">ΜΕΤΡΗΤΑ</span>
+               <button onClick={() => callWaiter('ΜΕΤΡΗΤΑ')} className={`p-5 rounded-[1.5rem] flex flex-col items-center justify-center gap-3 transition-all active:scale-95 shadow-lg border backdrop-blur-md hover:bg-white/5 ${isDarkTheme ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/5'}`}>
+                 <Banknote size={28} className="text-emerald-400"/> <span className="font-black text-[10px] uppercase tracking-[0.2em]">ΜΕΤΡΗΤΑ</span>
                </button>
-               <button onClick={() => callWaiter('APPLE PAY / GOOGLE PAY')} className={`p-4 rounded-2xl flex flex-col items-center justify-center gap-3 transition-all active:scale-95 shadow-sm border ${isDarkTheme ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-900 text-white border-slate-800'}`}>
-                 <Smartphone size={28}/> <span className="font-black text-[11px] uppercase tracking-widest">APPLE PAY</span>
+               <button onClick={() => callWaiter('APPLE PAY / GOOGLE PAY')} className={`p-5 rounded-[1.5rem] flex flex-col items-center justify-center gap-3 transition-all active:scale-95 shadow-lg border backdrop-blur-md ${isDarkTheme ? 'bg-white border-white text-black' : 'bg-black border-black text-white'}`}>
+                 <Smartphone size={28}/> <span className="font-black text-[10px] uppercase tracking-[0.2em]">APPLE PAY</span>
                </button>
-               <button onClick={() => callWaiter('ΣΠΑΣΤΟ (Min 4€ Κάρτα)')} className={`p-4 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all active:scale-95 shadow-sm border ${isDarkTheme ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
-                 <SplitSquareHorizontal size={24} className="text-amber-500"/>
-                 <div className="text-center"><span className="font-black text-[11px] uppercase tracking-widest block">ΣΠΑΣΤΟ</span><span className="text-[8px] font-bold text-slate-500 block leading-tight">(Min 4€ Κάρτα, τα υπόλοιπα Μετρητά)</span></div>
+               <button onClick={() => callWaiter('ΣΠΑΣΤΟ (Min 4€ Κάρτα)')} className={`p-5 rounded-[1.5rem] flex flex-col items-center justify-center gap-2 transition-all active:scale-95 shadow-lg border backdrop-blur-md hover:bg-white/5 ${isDarkTheme ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/5'}`}>
+                 <SplitSquareHorizontal size={24} className="text-amber-400"/>
+                 <div className="text-center"><span className="font-black text-[10px] uppercase tracking-[0.2em] block">ΣΠΑΣΤΟ</span><span className="text-[7px] font-bold text-slate-500 block leading-tight mt-1 uppercase">(ΜΙΣΑ ΚΑΡΤΑ - ΜΙΣΑ ΜΕΤΡΗΤΑ)</span></div>
                </button>
              </div>
-             <button onClick={() => setIsServiceOpen(false)} className={`w-full py-4 rounded-full font-black uppercase tracking-widest active:scale-95 transition-all ${isDarkTheme ? 'bg-slate-800 text-white hover:bg-slate-700' : 'bg-slate-100 text-slate-900 hover:bg-slate-200'}`}>ΑΚΥΡΩΣΗ</button>
+             <button onClick={() => setIsServiceOpen(false)} className={`w-full py-5 rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] active:scale-95 transition-all border ${isDarkTheme ? 'bg-white/5 border-white/10 text-white hover:bg-white/10' : 'bg-black/5 border-black/10 text-black hover:bg-black/10'}`}>ΑΚΥΡΩΣΗ</button>
            </div>
         </div>
       )}
 
       {isRepeatModalOpen && lastOrder && (
         <div className="fixed inset-0 z-50 flex items-end justify-center">
-           <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-md" onClick={() => setIsRepeatModalOpen(false)}></div>
-           <div className={`w-full max-w-lg p-6 sm:p-8 rounded-t-[2.5rem] relative z-10 animate-in slide-in-from-bottom-full duration-300 shadow-2xl ${isDarkTheme ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}`}>
-              <div className="w-12 h-1.5 bg-slate-500/30 rounded-full mx-auto mb-6"></div>
-              <h2 className="text-2xl font-black mb-1">Τι θέλετε να επαναλάβετε;</h2>
-              <div className="space-y-3 mb-8 mt-6 max-h-[40vh] overflow-y-auto overscroll-none pr-2">
+           <div className="absolute inset-0 bg-black/60 backdrop-blur-md" onClick={() => setIsRepeatModalOpen(false)}></div>
+           <div className={`w-full max-w-lg p-8 rounded-t-[3rem] relative z-10 animate-in slide-in-from-bottom-full duration-500 shadow-2xl border-t ${isDarkTheme ? 'bg-slate-900/90 border-white/10 text-white backdrop-blur-xl' : 'bg-white/90 border-black/10 text-slate-900 backdrop-blur-xl'}`}>
+              <div className="w-12 h-1.5 bg-slate-500/30 rounded-full mx-auto mb-8"></div>
+              <h2 className="text-2xl font-black mb-2 tracking-tighter">Επανάληψη Παραγγελίας;</h2>
+              <p className={`text-[9px] font-black uppercase tracking-[0.3em] mb-8 ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>ΕΠΙΛΕΞΤΕ ΠΡΟΙΟΝΤΑ</p>
+              <div className="space-y-4 mb-10 max-h-[40vh] overflow-y-auto overscroll-none pr-2">
                  {lastOrder.map((item, idx) => (
-                    <div key={idx} className={`flex justify-between items-center p-4 rounded-2xl border shadow-sm ${isDarkTheme ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
-                      <div className="flex flex-col"><span className="font-black leading-tight">{item.uniqueName}</span><span className="text-[11px] font-bold" style={{ color: safeThemeColor }}>{item.price.toFixed(2)}€</span></div>
-                      <button onClick={() => setCart(prev => [...prev, {...item, cartId: Math.random()}])} className={`w-12 h-12 rounded-full flex items-center justify-center shadow-sm active:scale-95 transition-all ${isDarkTheme ? 'bg-slate-700 text-white' : 'bg-white border text-slate-900'}`}><Plus size={20}/></button>
+                    <div key={idx} className={`flex justify-between items-center p-5 rounded-[1.5rem] border shadow-lg backdrop-blur-md ${isDarkTheme ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/5'}`}>
+                      <div className="flex flex-col"><span className="font-black text-sm tracking-wide mb-1">{item.uniqueName}</span><span className="text-xs font-black opacity-70" style={{ color: themeColor }}>{item.price.toFixed(2)}€</span></div>
+                      <button onClick={() => setCart(prev => [...prev, {...item, cartId: Math.random()}])} className={`w-12 h-12 rounded-[1rem] flex items-center justify-center shadow-md active:scale-90 transition-all border ${isDarkTheme ? 'bg-white/10 border-white/5 text-white hover:bg-white/20' : 'bg-white border-black/10 text-black hover:bg-slate-50'}`}><Plus size={20}/></button>
                     </div>
                  ))}
               </div>
-              <button onClick={() => setIsRepeatModalOpen(false)} className={`w-full py-5 rounded-full font-black uppercase tracking-widest active:scale-95 transition-all ${isDarkTheme ? 'bg-slate-800 hover:bg-slate-700' : 'bg-slate-100 hover:bg-slate-200'}`}>{cart.length > 0 ? 'ΣΥΝΕΧΕΙΑ ΣΤΟ ΚΑΛΑΘΙ' : 'ΚΛΕΙΣΙΜΟ'}</button>
+              <button onClick={() => setIsRepeatModalOpen(false)} className={`w-full py-5 rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] active:scale-95 transition-all shadow-xl`} style={cart.length > 0 ? { backgroundColor: themeColor, color: themeTextHex } : {}}>{cart.length > 0 ? 'ΣΥΝΕΧΕΙΑ ΣΤΟ ΚΑΛΑΘΙ' : 'ΚΛΕΙΣΙΜΟ'}</button>
            </div>
         </div>
       )}
 
       {selectedProductForOptions && (
         <div className="fixed inset-0 z-50 flex items-end justify-center">
-           <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-md" onClick={() => setSelectedProductForOptions(null)}></div>
-           <div className={`w-full max-w-lg p-6 sm:p-8 rounded-t-[2.5rem] relative z-10 animate-in slide-in-from-bottom-full duration-300 shadow-2xl ${isDarkTheme ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}`}>
-              <div className="w-12 h-1.5 bg-slate-500/30 rounded-full mx-auto mb-6"></div>
-              <h2 className="text-2xl font-black mb-1">{selectedProductForOptions.name}</h2>
-              <p className={`text-xs font-bold uppercase tracking-widest mb-6 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>Επιλεξτε προτιμησεις:</p>
-              <div className="grid grid-cols-2 gap-3 mb-8 max-h-[40vh] overflow-y-auto overscroll-none pr-1">
+           <div className="absolute inset-0 bg-black/60 backdrop-blur-md" onClick={() => setSelectedProductForOptions(null)}></div>
+           <div className={`w-full max-w-lg p-8 rounded-t-[3rem] relative z-10 animate-in slide-in-from-bottom-full duration-500 shadow-2xl border-t ${isDarkTheme ? 'bg-slate-900/90 border-white/10 text-white backdrop-blur-xl' : 'bg-white/90 border-black/10 text-slate-900 backdrop-blur-xl'}`}>
+              <div className="w-12 h-1.5 bg-slate-500/30 rounded-full mx-auto mb-8"></div>
+              <h2 className="text-2xl font-black mb-2 tracking-tighter">{selectedProductForOptions.name}</h2>
+              <p className={`text-[9px] font-black uppercase tracking-[0.3em] mb-8 ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>ΕΠΙΛΕΞΤΕ ΠΡΟΤΙΜΗΣΕΙΣ</p>
+              <div className="grid grid-cols-2 gap-4 mb-10 max-h-[40vh] overflow-y-auto overscroll-none pr-1">
                  {selectedProductForOptions.options?.split(',').map(opt => {
                     const cleanOpt = opt.trim(); const isSelected = selectedOptions.includes(cleanOpt);
                     return (
-                        <button key={cleanOpt} onClick={() => toggleOption(cleanOpt)} className={`p-4 rounded-2xl font-black text-sm transition-all border-2 ${isSelected ? 'shadow-lg' : isDarkTheme ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-white border-slate-200 text-slate-600'}`} style={isSelected ? { backgroundColor: themeColor, borderColor: themeColor, color: themeTextHex } : {}}>{cleanOpt}</button>
+                        <button key={cleanOpt} onClick={() => toggleOption(cleanOpt)} className={`p-4 rounded-[1.2rem] font-black text-xs tracking-wider transition-all border-2 backdrop-blur-md ${isSelected ? 'shadow-lg scale-[1.02]' : isDarkTheme ? 'bg-white/5 border-white/5 text-slate-300 hover:bg-white/10' : 'bg-black/5 border-black/5 text-slate-600 hover:bg-black/10'}`} style={isSelected ? { backgroundColor: themeColor, borderColor: themeColor, color: themeTextHex } : {}}>{cleanOpt}</button>
                     )
                  })}
               </div>
-              <button onClick={confirmOptionAndAddToCart} className="w-full py-5 rounded-full font-black uppercase tracking-widest shadow-xl active:scale-95 transition-all" style={{ backgroundColor: themeColor, color: themeTextHex }}>ΠΡΟΣΘΗΚΗ ΣΤΟ ΚΑΛΑΘΙ</button>
+              <button onClick={confirmOptionAndAddToCart} className="w-full py-5 rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] shadow-xl active:scale-95 transition-all" style={{ backgroundColor: themeColor, color: themeTextHex }}>ΠΡΟΣΘΗΚΗ ΣΤΟ ΚΑΛΑΘΙ</button>
            </div>
         </div>
       )}
 
+      {/* STICKY CART BAR */}
       {cart.length > 0 && !isServiceOpen && !selectedProductForOptions && !isRepeatModalOpen && (
-        <div className={`absolute bottom-6 left-4 right-4 sm:left-auto sm:right-auto sm:w-full sm:max-w-lg mx-auto rounded-[2.5rem] p-3 pl-6 flex justify-between items-center shadow-2xl z-40 animate-in slide-in-from-bottom-10 ${isDarkTheme ? 'bg-slate-800 border border-slate-700' : 'bg-slate-900'}`}>
-          <div className="text-white font-black"><p className="text-[10px] uppercase mb-1 leading-none" style={{ color: safeThemeColor }}>ΣΥΝΟΛΟ</p><p className="text-2xl tracking-tighter leading-none">{cart.reduce((s,i) => s + (i.price*i.quantity), 0).toFixed(2)}€</p></div>
-          <button onClick={() => setIsCheckoutOpen(true)} className="px-8 py-4 rounded-full font-black text-xs uppercase active:scale-95 transition-all" style={{ backgroundColor: themeColor, color: themeTextHex }}>ΠΡΟΒΟΛΗ</button>
+        <div className={`absolute bottom-8 left-6 right-6 sm:left-auto sm:right-auto sm:w-full sm:max-w-md mx-auto rounded-[2rem] p-3 pl-6 flex justify-between items-center shadow-2xl z-40 animate-in slide-in-from-bottom-10 border backdrop-blur-xl ${isDarkTheme ? 'bg-white/10 border-white/20' : 'bg-black/80 border-black/90'}`}>
+          <div className="text-white font-black"><p className="text-[8px] uppercase mb-0.5 tracking-[0.3em] opacity-80" style={{ color: themeColor }}>ΣΥΝΟΛΟ</p><p className="text-2xl tracking-tighter leading-none">{cart.reduce((s,i) => s + (i.price*i.quantity), 0).toFixed(2)}€</p></div>
+          <button onClick={() => setIsCheckoutOpen(true)} className="px-8 py-4 rounded-xl font-black text-[10px] uppercase active:scale-95 transition-all tracking-[0.2em]" style={{ backgroundColor: themeColor, color: themeTextHex }}>ΚΑΛΑΘΙ <span className="ml-1 bg-black/20 px-2 py-0.5 rounded-full">{cart.length}</span></button>
         </div>
       )}
 
       {isCheckoutOpen && (
         <div className="fixed inset-0 z-50 flex items-end justify-center">
-           <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-md" onClick={() => setIsCheckoutOpen(false)}></div>
-           <div className={`w-full max-w-lg p-6 sm:p-8 rounded-t-[2.5rem] relative z-10 animate-in slide-in-from-bottom-full duration-300 ${isDarkTheme ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}`}>
-             <div className="w-12 h-1.5 bg-slate-500/30 rounded-full mx-auto mb-6"></div>
-             <h2 className="text-2xl font-black mb-6 tracking-tighter">{isGiftMode ? 'Επιβεβαίωση Κεράσματος' : 'Το Καλάθι μου'}</h2>
-             {isGiftMode && ( <div className="bg-purple-500/20 p-3 rounded-xl mb-4 text-center"><p className="text-[10px] font-bold text-purple-400 uppercase tracking-widest">ΑΠΟΣΤΟΛΗ ΣΤΟ ΤΡΑΠΕΖΙ</p><p className="text-2xl font-black text-purple-500">{targetUmbrella}</p></div> )}
-             <div className="space-y-3 mb-8 max-h-[35vh] overflow-y-auto overscroll-none pr-2">
+           <div className="absolute inset-0 bg-black/60 backdrop-blur-md" onClick={() => setIsCheckoutOpen(false)}></div>
+           <div className={`w-full max-w-lg p-8 rounded-t-[3rem] relative z-10 animate-in slide-in-from-bottom-full duration-500 shadow-2xl border-t ${isDarkTheme ? 'bg-slate-900/90 border-white/10 text-white backdrop-blur-xl' : 'bg-white/90 border-black/10 text-slate-900 backdrop-blur-xl'}`}>
+             <div className="w-12 h-1.5 bg-slate-500/30 rounded-full mx-auto mb-8"></div>
+             <h2 className="text-2xl font-black mb-2 tracking-tighter">{isGiftMode ? 'Επιβεβαίωση Κεράσματος' : 'Το Καλάθι μου'}</h2>
+             <p className={`text-[9px] font-black uppercase tracking-[0.3em] mb-8 ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>ΕΠΙΣΚΟΠΗΣΗ</p>
+             
+             {isGiftMode && ( <div className="bg-purple-500/20 p-4 rounded-2xl mb-6 text-center border border-purple-500/30"><p className="text-[9px] font-black text-purple-400 uppercase tracking-[0.2em] mb-1">ΑΠΟΣΤΟΛΗ ΣΤΟ ΤΡΑΠΕΖΙ</p><p className="text-3xl font-black text-purple-400">{targetUmbrella}</p></div> )}
+             
+             <div className="space-y-4 mb-8 max-h-[35vh] overflow-y-auto overscroll-none pr-2">
                {cart.map(item => (
-                 <div key={item.cartId} className={`flex justify-between items-center p-4 rounded-2xl border shadow-sm ${isDarkTheme ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
-                   <div className="flex flex-col"><span className="font-black leading-tight">{item.uniqueName}</span><span className="text-[11px] font-bold" style={{ color: safeThemeColor }}>{item.price.toFixed(2)}€</span></div>
-                   <button onClick={() => removeFromCart(item.cartId)} className={`w-10 h-10 flex items-center justify-center rounded-full transition-all ${isDarkTheme ? 'text-slate-400 hover:text-red-400 hover:bg-red-500/20' : 'text-slate-300 hover:text-red-500 hover:bg-red-50'}`}><X size={20} /></button>
+                 <div key={item.cartId} className={`flex justify-between items-center p-5 rounded-[1.5rem] border shadow-md backdrop-blur-sm ${isDarkTheme ? 'bg-white/5 border-white/5' : 'bg-black/5 border-black/5'}`}>
+                   <div className="flex flex-col"><span className="font-black text-sm tracking-wide mb-1">{item.uniqueName}</span><span className="text-xs font-black opacity-80" style={{ color: themeColor }}>{item.price.toFixed(2)}€</span></div>
+                   <button onClick={() => removeFromCart(item.cartId)} className={`w-10 h-10 flex items-center justify-center rounded-xl transition-all border ${isDarkTheme ? 'bg-white/5 border-white/10 text-slate-400 hover:text-red-400 hover:bg-red-500/20 hover:border-red-500/30' : 'bg-white border-black/10 text-slate-500 hover:text-red-500 hover:bg-red-50 hover:border-red-200'}`}><X size={18} /></button>
                  </div>
                ))}
              </div>
-             <div className="flex justify-between items-end mb-8 px-2 border-t border-slate-500/20 pt-4">
-               <span className={`font-bold uppercase tracking-widest text-[10px] ${isDarkTheme ? 'text-slate-400' : 'text-slate-400'}`}>Πληρωμη</span>
-               <span className="text-4xl font-black">{cart.reduce((s,i) => s + (i.price*i.quantity), 0).toFixed(2)}€</span>
+             <div className={`flex justify-between items-end mb-10 px-2 border-t pt-6 ${isDarkTheme ? 'border-white/10' : 'border-black/10'}`}>
+               <span className={`font-black uppercase tracking-[0.3em] text-[10px] ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>ΣΥΝΟΛΙΚΗ ΑΞΙΑ</span>
+               <span className="text-4xl font-black tracking-tighter" style={{ color: themeColor }}>{cart.reduce((s,i) => s + (i.price*i.quantity), 0).toFixed(2)}<span className="text-2xl opacity-50">€</span></span>
              </div>
-             <button onClick={() => submitOrder()} className="w-full py-5 rounded-full font-black text-lg shadow-xl active:scale-95 transition-all" style={{ backgroundColor: themeColor, color: themeTextHex }}>ΑΠΟΣΤΟΛΗ ΠΑΡΑΓΓΕΛΙΑΣ</button>
+             <button onClick={() => submitOrder()} className="w-full py-5 rounded-2xl font-black tracking-[0.2em] text-[12px] shadow-xl active:scale-95 transition-all" style={{ backgroundColor: themeColor, color: themeTextHex }}>ΑΠΟΣΤΟΛΗ ΠΑΡΑΓΓΕΛΙΑΣ</button>
            </div>
         </div>
       )}
