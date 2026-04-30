@@ -47,7 +47,6 @@ export default function AdminPage() {
   const [settingsColor, setSettingsColor] = useState('');
   const [settingsBgColor, setSettingsBgColor] = useState('');
   
-  // Custom Κατηγορίες
   const [catSettings, setCatSettings] = useState<{name: string, bg_color: string, text_color: string, sort_order: number}[]>([]);
 
   useEffect(() => {
@@ -74,7 +73,6 @@ export default function AdminPage() {
     return () => { supabase.removeChannel(ordersSub); supabase.removeChannel(requestsSub); supabase.removeChannel(salesSub); };
   }, [store]);
 
-  // Υπολογισμός ρυθμίσεων κατηγοριών όποτε φορτώνει το μενού
   useEffect(() => {
       if (store && menu.length > 0) {
           const activeCategories = Array.from(new Set(menu.map(m => m.category)));
@@ -132,7 +130,12 @@ export default function AdminPage() {
   const updateCategorySettings = async () => {
       if (!store) return;
       const { error } = await supabase.from('stores').update({ category_prefs: catSettings }).eq('id', store.id);
-      if (!error) { alert("Οι κατηγορίες αποθηκεύτηκαν!"); setStore({...store, category_prefs: catSettings}); }
+      if (error) {
+          alert("ΣΦΑΛΜΑ ΒΑΣΗΣ: " + error.message);
+      } else { 
+          alert("Οι κατηγορίες αποθηκεύτηκαν επιτυχώς!"); 
+          setStore({...store, category_prefs: catSettings}); 
+      }
   };
 
   const moveCatUp = (index: number) => {

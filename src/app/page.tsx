@@ -5,18 +5,16 @@ import { supabase } from './lib/supabase';
 import { 
   ShoppingBag, ChevronLeft, Plus, Coffee, Umbrella, MapPin, 
   BellRing, CreditCard, Banknote, Smartphone, SplitSquareHorizontal, 
-  Gift, X, RotateCcw, Zap, Timer, CheckCircle2, WifiOff, RefreshCw, Hand, Info, ScanLine, Camera
+  Gift, X, RotateCcw, Zap, Timer, CheckCircle2, WifiOff, RefreshCw, Hand, Info, ScanLine, Camera, Map
 } from 'lucide-react';
 
 type MenuItem = { id: number; name: string; price: number; category: string; description?: string; is_available: boolean; options?: string; store_id: string; };
 type CartItem = MenuItem & { cartId: number; uniqueName: string; quantity: number; };
 type UmbrellaType = { id: number; number: string; store_id: string; };
-type StoreDetails = { id: string; name: string; slug: string; primary_color: string; bg_color: string; };
+type StoreDetails = { id: string; name: string; slug: string; primary_color: string; bg_color: string; category_prefs: any[]; };
 
-// --- INTERACTIVE CANVAS ANIMATION COMPONENT ---
 const FancyBackground = ({ themeColor }: { themeColor: string }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -43,62 +41,45 @@ const FancyBackground = ({ themeColor }: { themeColor: string }) => {
         this.speedY = Math.random() * 2 - 1;
       }
       update() {
-        this.x += this.speedX;
-        this.y += this.speedY;
+        this.x += this.speedX; this.y += this.speedY;
         if (this.x > w || this.x < 0) this.speedX = -this.speedX;
         if (this.y > h || this.y < 0) this.speedY = -this.speedY;
-
-        // Interaction
-        let dx = mouse.x - this.x;
-        let dy = mouse.y - this.y;
+        let dx = mouse.x - this.x; let dy = mouse.y - this.y;
         let distance = Math.sqrt(dx * dx + dy * dy);
         if (distance < mouse.radius) {
-          const forceDirectionX = dx / distance;
-          const forceDirectionY = dy / distance;
+          const forceDirectionX = dx / distance; const forceDirectionY = dy / distance;
           const force = (mouse.radius - distance) / mouse.radius;
-          this.x -= forceDirectionX * force * 3;
-          this.y -= forceDirectionY * force * 3;
+          this.x -= forceDirectionX * force * 3; this.y -= forceDirectionY * force * 3;
         }
       }
       draw() {
         if (!ctx) return;
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-        ctx.fillStyle = themeColor;
-        ctx.fill();
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        ctx.fillStyle = themeColor; ctx.fill();
       }
     }
-
     function init() {
-      particlesArray = [];
-      const numberOfParticles = (h * w) / 8000; // adjust density
+      particlesArray = []; const numberOfParticles = (h * w) / 8000;
       for (let i = 0; i < numberOfParticles; i++) particlesArray.push(new Particle());
     }
-
     function animate() {
       if (!ctx) return;
       ctx.clearRect(0, 0, w, h);
       for (let i = 0; i < particlesArray.length; i++) {
-        particlesArray[i].update();
-        particlesArray[i].draw();
+        particlesArray[i].update(); particlesArray[i].draw();
         for (let j = i; j < particlesArray.length; j++) {
-          const dx = particlesArray[i].x - particlesArray[j].x;
-          const dy = particlesArray[i].y - particlesArray[j].y;
+          const dx = particlesArray[i].x - particlesArray[j].x; const dy = particlesArray[i].y - particlesArray[j].y;
           const dist = Math.sqrt(dx * dx + dy * dy);
           if (dist < 100) {
             ctx.beginPath();
             ctx.strokeStyle = `${themeColor}${Math.floor((1 - dist/100) * 100).toString(16).padStart(2, '0')}`;
-            ctx.lineWidth = 0.5;
-            ctx.moveTo(particlesArray[i].x, particlesArray[i].y);
-            ctx.lineTo(particlesArray[j].x, particlesArray[j].y);
-            ctx.stroke();
+            ctx.lineWidth = 0.5; ctx.moveTo(particlesArray[i].x, particlesArray[i].y); ctx.lineTo(particlesArray[j].x, particlesArray[j].y); ctx.stroke();
           }
         }
       }
       requestAnimationFrame(animate);
     }
-    init();
-    animate();
+    init(); animate();
   }, [themeColor]);
 
   return <canvas ref={canvasRef} className="absolute inset-0 z-0 pointer-events-auto mix-blend-screen opacity-60" />;
@@ -106,6 +87,7 @@ const FancyBackground = ({ themeColor }: { themeColor: string }) => {
 
 
 export default function CustomerPage() {
+  const [isInitialized, setIsInitialized] = useState(false);
   const [storeSlug, setStoreSlug] = useState<string | null>(null);
   const [storeDetails, setStoreDetails] = useState<StoreDetails | null>(null);
 
@@ -131,26 +113,20 @@ export default function CustomerPage() {
   const [isServedVisible, setIsServedVisible] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);
 
-  // Σύστημα Ειδοποιήσεων
   const [toast, setToast] = useState<{ title: string; desc: string; icon: React.ReactNode; color: string } | null>(null);
   const [isOnline, setIsOnline] = useState(true);
 
   const showToast = (title: string, desc: string, type: 'success' | 'alert' | 'gift' = 'success') => {
-      let icon = <CheckCircle2 size={24} />;
-      let color = 'bg-emerald-500';
+      let icon = <CheckCircle2 size={24} />; let color = 'bg-emerald-500';
       if (type === 'gift') { icon = <Gift size={24} />; color = 'bg-purple-600'; }
       if (type === 'alert') { icon = <BellRing size={24} />; color = 'bg-cyan-600'; }
-      setToast({ title, desc, icon, color });
-      setTimeout(() => setToast(null), 4000); 
+      setToast({ title, desc, icon, color }); setTimeout(() => setToast(null), 4000); 
   };
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const store = params.get('store');
-    const umbrella = params.get('umbrella');
-    
-    if (store) setStoreSlug(store);
-    if (umbrella) setUmbrellaNumber(umbrella);
+    const store = params.get('store'); const umbrella = params.get('umbrella');
+    if (store) setStoreSlug(store); if (umbrella) setUmbrellaNumber(umbrella);
 
     const savedOrder = localStorage.getItem('aqua_last_order');
     if (savedOrder) setLastOrder(JSON.parse(savedOrder));
@@ -160,29 +136,21 @@ export default function CustomerPage() {
     setIsOnline(navigator.onLine);
     const handleOnline = () => { setIsOnline(true); syncOfflineData(); };
     const handleOffline = () => setIsOnline(false);
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-
+    window.addEventListener('online', handleOnline); window.addEventListener('offline', handleOffline);
     if (navigator.onLine) syncOfflineData();
-
-    return () => {
-        window.removeEventListener('online', handleOnline);
-        window.removeEventListener('offline', handleOffline);
-    };
+    
+    setIsInitialized(true);
+    return () => { window.removeEventListener('online', handleOnline); window.removeEventListener('offline', handleOffline); };
   }, []);
 
   async function fetchStoreData(slug: string) {
       const { data: storeData } = await supabase.from('stores').select('*').eq('slug', slug).single();
       if (storeData) {
-          setStoreDetails(storeData);
-          fetchMenu(storeData.id);
-          fetchUmbrellas(storeData.id);
-
+          setStoreDetails(storeData); fetchMenu(storeData.id); fetchUmbrellas(storeData.id);
           const menuSub = supabase.channel(`public:menu:${storeData.id}`).on('postgres_changes', { event: '*', schema: 'public', table: 'menu', filter: `store_id=eq.${storeData.id}` }, () => fetchMenu(storeData.id)).subscribe();
           const umbSub = supabase.channel(`public:umbrellas:${storeData.id}`).on('postgres_changes', { event: '*', schema: 'public', table: 'umbrellas', filter: `store_id=eq.${storeData.id}` }, () => fetchUmbrellas(storeData.id)).subscribe();
-
-          return () => { supabase.removeChannel(menuSub); supabase.removeChannel(umbSub); };
+          const storeSub = supabase.channel(`public:stores:${storeData.id}`).on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'stores', filter: `id=eq.${storeData.id}` }, (payload) => setStoreDetails(payload.new as StoreDetails)).subscribe();
+          return () => { supabase.removeChannel(menuSub); supabase.removeChannel(umbSub); supabase.removeChannel(storeSub); };
       }
   }
 
@@ -193,7 +161,6 @@ export default function CustomerPage() {
              if (payload.eventType === 'DELETE') checkIfTableIsCleared(umbrellaNumber, storeDetails.id);
              else { setActiveOrder(payload.new); fetchMyBill(storeDetails.id); }
           }).subscribe();
-        
         fetchMyBill(storeDetails.id);
         return () => { supabase.removeChannel(orderSub); };
     }
@@ -202,10 +169,7 @@ export default function CustomerPage() {
   useEffect(() => {
     let timer1: NodeJS.Timeout, timer2: NodeJS.Timeout;
     if (activeOrder && activeOrder.status === 'shipped') {
-        timer1 = setTimeout(() => {
-            setIsServedVisible(true);
-            timer2 = setTimeout(() => { setActiveOrder(null); setIsServedVisible(false); }, 10000); 
-        }, 180000);
+        timer1 = setTimeout(() => { setIsServedVisible(true); timer2 = setTimeout(() => { setActiveOrder(null); setIsServedVisible(false); }, 10000); }, 180000);
     } else setIsServedVisible(false);
     return () => { if (timer1) clearTimeout(timer1); if (timer2) clearTimeout(timer2); };
   }, [activeOrder?.status]);
@@ -253,9 +217,7 @@ export default function CustomerPage() {
       if (isGiftMode) showToast("Το Κέρασμα Εστάλη!", `Ο Barista το ετοιμάζει για το τραπέζι ${targetUmbrella}.`, 'gift');
       else showToast("Η Παραγγελία Εστάλη!", "Το προσωπικό έλαβε την παραγγελία σας.", 'success');
       setCart([]); setIsCheckoutOpen(false); setIsGiftMode(false); setTargetUmbrella(''); setIsRepeatModalOpen(false);
-    } else {
-        showToast("Σφάλμα Δικτύου", "Η παραγγελία δεν εστάλη. Προσπαθήστε ξανά.", "alert");
-    }
+    } else showToast("Σφάλμα Δικτύου", "Η παραγγελία δεν εστάλη. Προσπαθήστε ξανά.", "alert");
   };
 
   const syncOfflineData = async () => {
@@ -279,15 +241,11 @@ export default function CustomerPage() {
 
     if (!isOnline) {
         localStorage.setItem('aqua_pending_request', JSON.stringify(requestPayload));
-        setIsServiceOpen(false);
-        showToast("Εκτός Σύνδεσης", "Η ειδοποίηση θα σταλεί μόλις επανέλθει το δίκτυο.", "alert");
+        setIsServiceOpen(false); showToast("Εκτός Σύνδεσης", "Η ειδοποίηση θα σταλεί μόλις επανέλθει το δίκτυο.", "alert");
         return;
     }
     const { error } = await supabase.from('service_requests').insert([requestPayload]);
-    if (!error) { 
-        setIsServiceOpen(false); 
-        showToast("Ο Σερβιτόρος Ειδοποιήθηκε", method === 'ΚΛΗΣΗ (ΑΠΛΗ)' ? "Έρχεται στο τραπέζι σας." : `Έρχεται με το λογαριασμό (${method}).`, 'alert');
-    }
+    if (!error) { setIsServiceOpen(false); showToast("Ο Σερβιτόρος Ειδοποιήθηκε", method === 'ΚΛΗΣΗ (ΑΠΛΗ)' ? "Έρχεται στο τραπέζι σας." : `Έρχεται με το λογαριασμό (${method}).`, 'alert'); }
   };
 
   const removeFromCart = (cartId: number) => setCart(prev => prev.filter(item => item.cartId !== cartId));
@@ -306,6 +264,57 @@ export default function CustomerPage() {
     setSelectedProductForOptions(null); setSelectedOptions([]);
   };
 
+  if (!isInitialized) return <div className="fixed inset-0 bg-slate-950"></div>;
+
+  // ==========================================
+  // 1. GLOBAL LANDING PAGE (Όταν ΔΕΝ υπάρχει μαγαζί στο Link)
+  // ==========================================
+  if (!storeSlug) {
+      return (
+        <div className="fixed inset-0 bg-slate-950 flex flex-col items-center justify-center overflow-hidden">
+           {/* Χρησιμοποιούμε το themeColor #06b6d4 (Cyan) ως default για την πλατφόρμα */}
+           <FancyBackground themeColor="#06b6d4" />
+           
+           <div className="relative z-10 text-center px-6 flex flex-col items-center w-full max-w-sm animate-in zoom-in-95 duration-700">
+              <div className="w-24 h-24 bg-cyan-500/10 backdrop-blur-md border border-cyan-500/20 rounded-[2.5rem] flex items-center justify-center mb-6 shadow-[0_0_50px_rgba(6,182,212,0.2)]">
+                  <Zap size={48} className="text-cyan-400" />
+              </div>
+              <h1 className="text-6xl font-black text-white mb-2 tracking-tighter uppercase drop-shadow-lg italic">AQUA.</h1>
+              <p className="text-slate-400 mb-12 uppercase tracking-[0.3em] text-[10px] font-bold">Interactive Order System</p>
+
+              <div className="w-full space-y-4">
+                  <button onClick={() => setShowQRModal(true)} className="w-full flex items-center justify-center gap-3 py-5 rounded-2xl font-black uppercase tracking-widest text-sm transition-all active:scale-95 shadow-[0_0_30px_rgba(6,182,212,0.4)] bg-cyan-500 text-slate-950 hover:bg-cyan-400">
+                     <ScanLine size={20} /> ΣΚΑΝΑΡΕ ΚΩΔΙΚΟ (QR)
+                  </button>
+                  <button className="w-full flex items-center justify-center gap-3 py-5 rounded-2xl font-black uppercase tracking-widest text-sm transition-all active:scale-95 border border-slate-800 bg-slate-900/80 text-slate-400 backdrop-blur-md hover:text-white hover:border-slate-700">
+                     <Map size={20} /> ΧΑΡΤΗΣ ΜΑΓΑΖΙΩΝ
+                  </button>
+              </div>
+           </div>
+
+           {/* QR Modal Instructions */}
+           {showQRModal && (
+              <div className="fixed inset-0 z-50 flex items-end justify-center">
+                 <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" onClick={() => setShowQRModal(false)}></div>
+                 <div className="bg-slate-900 border-t border-slate-800 w-full p-8 rounded-t-[2.5rem] relative z-10 animate-in slide-in-from-bottom-full duration-300 flex flex-col items-center text-center shadow-2xl">
+                    <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mb-6 text-white"><Camera size={28}/></div>
+                    <h3 className="text-2xl font-black text-white mb-3">Ανοίξτε την Κάμερα</h3>
+                    <p className="text-slate-400 font-medium mb-8 text-sm">Βγείτε από την εφαρμογή, ανοίξτε την κάμερα του κινητού σας και στοχεύστε το τετράγωνο σηματάκι (QR Code) που βρίσκεται στο τραπέζι ή την ομπρέλα σας!</p>
+                    <button onClick={() => setShowQRModal(false)} className="bg-slate-800 hover:bg-slate-700 text-white w-full py-4 rounded-xl font-bold uppercase tracking-widest text-xs transition-colors">Ενταξει, καταλαβα</button>
+                 </div>
+              </div>
+           )}
+        </div>
+      );
+  }
+
+  // ==========================================
+  // LOADING STATE (Αν υπάρχει slug αλλά φορτώνει δεδομένα)
+  // ==========================================
+  if (!storeDetails && storeSlug) {
+      return <div className="fixed inset-0 flex items-center justify-center bg-slate-50"><div className="w-10 h-10 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin"></div></div>;
+  }
+
   const categoriesInMenu = Array.from(new Set(menu.map(m => m.category)));
   const availableGiftUmbrellas = umbrellas.filter(u => u.number !== umbrellaNumber);
 
@@ -313,8 +322,7 @@ export default function CustomerPage() {
   const dynamicBgColor = storeDetails?.bg_color || '#f8fafc';
   
   const getContrast = (hexcolor: string) => {
-      if (!hexcolor) return 'light';
-      hexcolor = hexcolor.replace("#", "");
+      if (!hexcolor) return 'light'; hexcolor = hexcolor.replace("#", "");
       if (hexcolor.length === 3) hexcolor = hexcolor.split('').map(x => x + x).join('');
       const r = parseInt(hexcolor.substring(0,2), 16), g = parseInt(hexcolor.substring(2,4), 16), b = parseInt(hexcolor.substring(4,6), 16);
       return ((r*299)+(g*587)+(b*114))/1000 >= 128 ? 'light' : 'dark';
@@ -323,38 +331,48 @@ export default function CustomerPage() {
   const isDarkTheme = getContrast(dynamicBgColor) === 'dark';
   const textColor = isDarkTheme ? 'text-white' : 'text-slate-900';
   const cardBg = isDarkTheme ? 'bg-slate-900/60 border-slate-700 backdrop-blur-md' : 'bg-white border-slate-100';
-
   const isThemeColorDark = getContrast(themeColor) === 'dark';
   const themeTextHex = isThemeColorDark ? '#ffffff' : '#0f172a';
   const safeThemeColor = (isDarkTheme && isThemeColorDark) ? '#ffffff' : themeColor;
 
-  if (!storeDetails && storeSlug) {
-      return <div className="fixed inset-0 flex items-center justify-center bg-slate-50"><div className="w-10 h-10 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin"></div></div>;
-  }
+  // Αλεξίσφαιρο Λογικό για Κατηγορίες (αγνοεί τόνους/κεφαλαία)
+  const normalizeText = (text: string) => {
+      if (!text) return "";
+      return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+  };
 
-  // --- LANDING PAGE (ΑΝ ΔΕΝ ΕΧΕΙ ΣΚΑΝΑΡΕΙ ΟΜΠΡΕΛΑ) ---
+  let rawPrefs = storeDetails?.category_prefs || [];
+  if (typeof rawPrefs === 'string') {
+      try { rawPrefs = JSON.parse(rawPrefs); } catch (e) { rawPrefs = []; }
+  }
+  
+  const displayCategories = categoriesInMenu.map(catName => {
+      const pref = rawPrefs.find((p:any) => normalizeText(p.name) === normalizeText(catName));
+      return {
+          name: catName,
+          bg_color: pref?.bg_color || (isDarkTheme ? '#1e293b' : '#ffffff'), 
+          text_color: pref?.text_color || (isDarkTheme ? '#ffffff' : '#0f172a'),
+          sort_order: pref?.sort_order ?? 999
+      };
+  }).sort((a, b) => a.sort_order - b.sort_order);
+
+  // ==========================================
+  // 2. STORE LANDING PAGE (Μπήκε στο μαγαζί αλλά δεν σκάναρε ομπρέλα)
+  // ==========================================
   if (!umbrellaNumber && storeDetails) {
     return (
       <div className="fixed inset-0 bg-slate-950 flex flex-col items-center justify-center overflow-hidden">
-         {/* Η 3D Canvas Animation */}
          <FancyBackground themeColor={themeColor} />
-         
          <div className="relative z-10 text-center px-6 flex flex-col items-center max-w-sm w-full animate-in zoom-in-95 duration-700">
             <div className="w-20 h-20 bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl flex items-center justify-center mb-6 shadow-2xl">
                 <Coffee size={40} style={{ color: themeColor }} />
             </div>
-            
-            <h1 className="text-5xl font-black text-white mb-2 tracking-tighter uppercase drop-shadow-lg">
-                {storeDetails.name}
-            </h1>
+            <h1 className="text-5xl font-black text-white mb-2 tracking-tighter uppercase drop-shadow-lg">{storeDetails.name}</h1>
             <p className="text-slate-400 mb-12 uppercase tracking-[0.3em] text-xs font-bold">Interactive Experience</p>
-
             <button onClick={() => setShowQRModal(true)} className="w-full flex items-center justify-center gap-3 py-5 rounded-2xl font-black uppercase tracking-widest text-sm transition-all active:scale-95 shadow-[0_0_30px_rgba(0,0,0,0.5)]" style={{ backgroundColor: themeColor, color: themeTextHex, boxShadow: `0 0 40px ${themeColor}40` }}>
                <ScanLine size={20} /> ΣΚΑΝΑΡΕ ΤΟ QR ΣΟΥ
             </button>
          </div>
-
-         {/* Modal Εξήγησης για Σκανάρισμα */}
          {showQRModal && (
             <div className="fixed inset-0 z-50 flex items-end justify-center">
                <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" onClick={() => setShowQRModal(false)}></div>
@@ -370,27 +388,20 @@ export default function CustomerPage() {
     );
   }
 
-  // --- ΚΑΝΟΝΙΚΟ ΜΕΝΟΥ (ΑΦΟΥ ΣΚΑΝΑΡΕΙ) ---
+  // ==========================================
+  // 3. MAIN APP (Έχει σκανάρει και βλέπει μενού)
+  // ==========================================
   return (
     <div className={`fixed inset-0 w-full h-full font-sans flex flex-col overflow-hidden transition-colors duration-500 ${textColor}`} style={{ backgroundColor: dynamicBgColor }}>
-      
       {toast && (
           <div className={`fixed top-4 left-4 right-4 z-[100] ${toast.color} text-white p-4 rounded-2xl shadow-2xl flex items-start gap-3 animate-in slide-in-from-top-4 fade-in duration-300`}>
              <div className="shrink-0 mt-0.5">{toast.icon}</div>
-             <div>
-                <p className="font-black text-sm uppercase tracking-widest">{toast.title}</p>
-                <p className="text-xs font-medium opacity-90">{toast.desc}</p>
-             </div>
+             <div><p className="font-black text-sm uppercase tracking-widest">{toast.title}</p><p className="text-xs font-medium opacity-90">{toast.desc}</p></div>
           </div>
       )}
 
       <div className="shrink-0 z-50">
-        {!isOnline && (
-            <div className="bg-red-500 text-white p-2 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2">
-                <WifiOff size={14} /> Χωρις Συνδεση. Συνεχιστε κανονικα!
-            </div>
-        )}
-        
+        {!isOnline && ( <div className="bg-red-500 text-white p-2 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"><WifiOff size={14} /> Χωρις Συνδεση. Συνεχιστε κανονικα!</div> )}
         {activeOrder && activeOrder.status !== 'completed' && (
           <div className={`p-4 animate-in slide-in-from-top duration-500 shadow-2xl transition-colors ${isServedVisible ? 'bg-emerald-500 text-white' : 'bg-slate-950 text-white'}`}>
              <div className="max-w-lg mx-auto flex items-center justify-between">
@@ -400,9 +411,7 @@ export default function CustomerPage() {
                   </div>
                   <div>
                      <p className="text-[9px] font-black uppercase tracking-[0.2em] transition-colors" style={{ color: isServedVisible ? '#d1fae5' : safeThemeColor }}>Εξελιξη Παραγγελιας</p>
-                     <p className="text-xs font-bold uppercase tracking-tight">
-                        {isServedVisible ? 'ΣΕΡΒΙΡΙΣΤΗΚΕ!' : <>{activeOrder.status === 'new' && 'Παραληφθηκε...'}{activeOrder.status === 'preparing' && 'Ο Barista ετοιμαζει...'}{activeOrder.status === 'shipped' && 'Ερχεται στην ομπρελα!'}</>}
-                     </p>
+                     <p className="text-xs font-bold uppercase tracking-tight">{isServedVisible ? 'ΣΕΡΒΙΡΙΣΤΗΚΕ!' : <>{activeOrder.status === 'new' && 'Παραληφθηκε...'}{activeOrder.status === 'preparing' && 'Ο Barista ετοιμαζει...'}{activeOrder.status === 'shipped' && 'Ερχεται στην ομπρελα!'}</>}</p>
                   </div>
                 </div>
                 {!isServedVisible && (
@@ -417,15 +426,15 @@ export default function CustomerPage() {
         )}
 
         <header className={`px-4 sm:px-6 py-6 sm:py-8 flex justify-between items-center backdrop-blur-2xl border-b border-white/10`} style={{ backgroundColor: `${dynamicBgColor}D9` }}>
-          <h1 className="text-3xl font-black tracking-tighter italic line-clamp-1 flex-1 pr-4 drop-shadow-sm">
-              {storeDetails ? storeDetails.name : 'AQUA'}<span style={{ color: safeThemeColor }}>.</span>
-          </h1>
-          {umbrellaNumber && (
-            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full shadow-sm border shrink-0 ${isDarkTheme ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-600'}`}>
-                <MapPin size={14} style={{ color: safeThemeColor }} />
-                <span className="text-xs font-black uppercase tracking-widest">Ομπρελα {umbrellaNumber}</span>
-            </div>
-          )}
+          <h1 className="text-3xl font-black tracking-tighter italic line-clamp-1 flex-1 pr-4 drop-shadow-sm">{storeDetails ? storeDetails.name : 'AQUA'}<span style={{ color: safeThemeColor }}>.</span></h1>
+          <div className="flex items-center gap-2 shrink-0">
+              {umbrellaNumber && (
+                <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full shadow-sm border ${isDarkTheme ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-600'}`}>
+                    <MapPin size={14} style={{ color: safeThemeColor }} />
+                    <span className="text-xs font-black uppercase tracking-widest">Ομπρελα {umbrellaNumber}</span>
+                </div>
+              )}
+          </div>
         </header>
       </div>
 
@@ -470,11 +479,12 @@ export default function CustomerPage() {
           </div>
         )}
 
+        {/* ΔΥΝΑΜΙΚΕΣ ΚΑΤΗΓΟΡΙΕΣ */}
         {!activeCategory ? (
           <div className="grid grid-cols-2 gap-4">
-            {categoriesInMenu.map((cat, idx) => (
-              <button key={cat} onClick={() => setActiveCategory(cat)} className={`h-32 sm:h-36 rounded-[2rem] flex flex-col items-center justify-center shadow-sm border font-black uppercase text-[15px] sm:text-lg transition-all active:scale-95 ${idx === 0 ? 'col-span-2 border-none' : cardBg}`} style={idx === 0 ? { backgroundColor: themeColor, color: themeTextHex } : {}}>
-                  {cat}
+            {displayCategories.map((cat, idx) => (
+              <button key={cat.name} onClick={() => setActiveCategory(cat.name)} className={`h-32 sm:h-36 rounded-[2rem] flex flex-col items-center justify-center shadow-lg font-black uppercase text-[15px] sm:text-lg transition-all active:scale-95 border-2 ${idx === 0 ? 'col-span-2' : ''}`} style={{ backgroundColor: cat.bg_color, color: cat.text_color, borderColor: cat.bg_color }}>
+                  {cat.name}
               </button>
             ))}
           </div>
@@ -511,26 +521,19 @@ export default function CustomerPage() {
              <h2 className="text-2xl font-black mb-2 tracking-tighter">Εξόφληση Λογαριασμού</h2>
              <p className={`text-xs font-bold uppercase tracking-widest mb-6 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>ΠΩΣ ΘΑ ΠΛΗΡΩΣΕΤΕ;</p>
              <p className="text-5xl font-black text-center mb-8">{totalOwed.toFixed(2)}€</p>
-             
              <div className="grid grid-cols-2 gap-3 mb-6">
                <button onClick={() => callWaiter('ΚΑΡΤΑ (POS)')} className={`p-4 rounded-2xl flex flex-col items-center justify-center gap-3 transition-all active:scale-95 shadow-sm border ${isDarkTheme ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
-                 <CreditCard size={28} style={{ color: safeThemeColor }}/>
-                 <span className="font-black text-[11px] uppercase tracking-widest">ΚΑΡΤΑ (POS)</span>
+                 <CreditCard size={28} style={{ color: safeThemeColor }}/> <span className="font-black text-[11px] uppercase tracking-widest">ΚΑΡΤΑ (POS)</span>
                </button>
                <button onClick={() => callWaiter('ΜΕΤΡΗΤΑ')} className={`p-4 rounded-2xl flex flex-col items-center justify-center gap-3 transition-all active:scale-95 shadow-sm border ${isDarkTheme ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
-                 <Banknote size={28} className="text-emerald-500"/>
-                 <span className="font-black text-[11px] uppercase tracking-widest">ΜΕΤΡΗΤΑ</span>
+                 <Banknote size={28} className="text-emerald-500"/> <span className="font-black text-[11px] uppercase tracking-widest">ΜΕΤΡΗΤΑ</span>
                </button>
                <button onClick={() => callWaiter('APPLE PAY / GOOGLE PAY')} className={`p-4 rounded-2xl flex flex-col items-center justify-center gap-3 transition-all active:scale-95 shadow-sm border ${isDarkTheme ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-900 text-white border-slate-800'}`}>
-                 <Smartphone size={28}/>
-                 <span className="font-black text-[11px] uppercase tracking-widest">APPLE PAY</span>
+                 <Smartphone size={28}/> <span className="font-black text-[11px] uppercase tracking-widest">APPLE PAY</span>
                </button>
                <button onClick={() => callWaiter('ΣΠΑΣΤΟ (Min 4€ Κάρτα)')} className={`p-4 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all active:scale-95 shadow-sm border ${isDarkTheme ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
                  <SplitSquareHorizontal size={24} className="text-amber-500"/>
-                 <div className="text-center">
-                    <span className="font-black text-[11px] uppercase tracking-widest block">ΣΠΑΣΤΟ</span>
-                    <span className="text-[8px] font-bold text-slate-500 block leading-tight">(Min 4€ Κάρτα, τα υπόλοιπα Μετρητά)</span>
-                 </div>
+                 <div className="text-center"><span className="font-black text-[11px] uppercase tracking-widest block">ΣΠΑΣΤΟ</span><span className="text-[8px] font-bold text-slate-500 block leading-tight">(Min 4€ Κάρτα, τα υπόλοιπα Μετρητά)</span></div>
                </button>
              </div>
              <button onClick={() => setIsServiceOpen(false)} className={`w-full py-4 rounded-full font-black uppercase tracking-widest active:scale-95 transition-all ${isDarkTheme ? 'bg-slate-800 text-white hover:bg-slate-700' : 'bg-slate-100 text-slate-900 hover:bg-slate-200'}`}>ΑΚΥΡΩΣΗ</button>
@@ -547,17 +550,12 @@ export default function CustomerPage() {
               <div className="space-y-3 mb-8 mt-6 max-h-[40vh] overflow-y-auto overscroll-none pr-2">
                  {lastOrder.map((item, idx) => (
                     <div key={idx} className={`flex justify-between items-center p-4 rounded-2xl border shadow-sm ${isDarkTheme ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
-                      <div className="flex flex-col">
-                         <span className="font-black leading-tight">{item.uniqueName}</span>
-                         <span className="text-[11px] font-bold" style={{ color: safeThemeColor }}>{item.price.toFixed(2)}€</span>
-                      </div>
+                      <div className="flex flex-col"><span className="font-black leading-tight">{item.uniqueName}</span><span className="text-[11px] font-bold" style={{ color: safeThemeColor }}>{item.price.toFixed(2)}€</span></div>
                       <button onClick={() => setCart(prev => [...prev, {...item, cartId: Math.random()}])} className={`w-12 h-12 rounded-full flex items-center justify-center shadow-sm active:scale-95 transition-all ${isDarkTheme ? 'bg-slate-700 text-white' : 'bg-white border text-slate-900'}`}><Plus size={20}/></button>
                     </div>
                  ))}
               </div>
-              <button onClick={() => setIsRepeatModalOpen(false)} className={`w-full py-5 rounded-full font-black uppercase tracking-widest active:scale-95 transition-all ${isDarkTheme ? 'bg-slate-800 hover:bg-slate-700' : 'bg-slate-100 hover:bg-slate-200'}`}>
-                  {cart.length > 0 ? 'ΣΥΝΕΧΕΙΑ ΣΤΟ ΚΑΛΑΘΙ' : 'ΚΛΕΙΣΙΜΟ'}
-              </button>
+              <button onClick={() => setIsRepeatModalOpen(false)} className={`w-full py-5 rounded-full font-black uppercase tracking-widest active:scale-95 transition-all ${isDarkTheme ? 'bg-slate-800 hover:bg-slate-700' : 'bg-slate-100 hover:bg-slate-200'}`}>{cart.length > 0 ? 'ΣΥΝΕΧΕΙΑ ΣΤΟ ΚΑΛΑΘΙ' : 'ΚΛΕΙΣΙΜΟ'}</button>
            </div>
         </div>
       )}
@@ -569,15 +567,11 @@ export default function CustomerPage() {
               <div className="w-12 h-1.5 bg-slate-500/30 rounded-full mx-auto mb-6"></div>
               <h2 className="text-2xl font-black mb-1">{selectedProductForOptions.name}</h2>
               <p className={`text-xs font-bold uppercase tracking-widest mb-6 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>Επιλεξτε προτιμησεις:</p>
-              
               <div className="grid grid-cols-2 gap-3 mb-8 max-h-[40vh] overflow-y-auto overscroll-none pr-1">
                  {selectedProductForOptions.options?.split(',').map(opt => {
-                    const cleanOpt = opt.trim();
-                    const isSelected = selectedOptions.includes(cleanOpt);
+                    const cleanOpt = opt.trim(); const isSelected = selectedOptions.includes(cleanOpt);
                     return (
-                        <button key={cleanOpt} onClick={() => toggleOption(cleanOpt)} className={`p-4 rounded-2xl font-black text-sm transition-all border-2 ${isSelected ? 'shadow-lg' : isDarkTheme ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-white border-slate-200 text-slate-600'}`} style={isSelected ? { backgroundColor: themeColor, borderColor: themeColor, color: themeTextHex } : {}}>
-                            {cleanOpt}
-                        </button>
+                        <button key={cleanOpt} onClick={() => toggleOption(cleanOpt)} className={`p-4 rounded-2xl font-black text-sm transition-all border-2 ${isSelected ? 'shadow-lg' : isDarkTheme ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-white border-slate-200 text-slate-600'}`} style={isSelected ? { backgroundColor: themeColor, borderColor: themeColor, color: themeTextHex } : {}}>{cleanOpt}</button>
                     )
                  })}
               </div>
@@ -599,21 +593,11 @@ export default function CustomerPage() {
            <div className={`w-full max-w-lg p-6 sm:p-8 rounded-t-[2.5rem] relative z-10 animate-in slide-in-from-bottom-full duration-300 ${isDarkTheme ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}`}>
              <div className="w-12 h-1.5 bg-slate-500/30 rounded-full mx-auto mb-6"></div>
              <h2 className="text-2xl font-black mb-6 tracking-tighter">{isGiftMode ? 'Επιβεβαίωση Κεράσματος' : 'Το Καλάθι μου'}</h2>
-             
-             {isGiftMode && (
-                <div className="bg-purple-500/20 p-3 rounded-xl mb-4 text-center">
-                    <p className="text-[10px] font-bold text-purple-400 uppercase tracking-widest">ΑΠΟΣΤΟΛΗ ΣΤΟ ΤΡΑΠΕΖΙ</p>
-                    <p className="text-2xl font-black text-purple-500">{targetUmbrella}</p>
-                </div>
-             )}
-
+             {isGiftMode && ( <div className="bg-purple-500/20 p-3 rounded-xl mb-4 text-center"><p className="text-[10px] font-bold text-purple-400 uppercase tracking-widest">ΑΠΟΣΤΟΛΗ ΣΤΟ ΤΡΑΠΕΖΙ</p><p className="text-2xl font-black text-purple-500">{targetUmbrella}</p></div> )}
              <div className="space-y-3 mb-8 max-h-[35vh] overflow-y-auto overscroll-none pr-2">
                {cart.map(item => (
                  <div key={item.cartId} className={`flex justify-between items-center p-4 rounded-2xl border shadow-sm ${isDarkTheme ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
-                   <div className="flex flex-col">
-                      <span className="font-black leading-tight">{item.uniqueName}</span>
-                      <span className="text-[11px] font-bold" style={{ color: safeThemeColor }}>{item.price.toFixed(2)}€</span>
-                   </div>
+                   <div className="flex flex-col"><span className="font-black leading-tight">{item.uniqueName}</span><span className="text-[11px] font-bold" style={{ color: safeThemeColor }}>{item.price.toFixed(2)}€</span></div>
                    <button onClick={() => removeFromCart(item.cartId)} className={`w-10 h-10 flex items-center justify-center rounded-full transition-all ${isDarkTheme ? 'text-slate-400 hover:text-red-400 hover:bg-red-500/20' : 'text-slate-300 hover:text-red-500 hover:bg-red-50'}`}><X size={20} /></button>
                  </div>
                ))}
