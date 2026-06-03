@@ -17,7 +17,7 @@ type Order = { id: number; created_at: string; accepted_at?: string; umbrella_nu
 type UmbrellaType = { id: number; number: string; x_pos: number; y_pos: number; zone_name: string; asset_type: string; is_available?: boolean; };
 type ServiceRequest = { id: number; umbrella_number: string; request_type: string; payment_method: string; notes: string; status: string; created_at: string; };
 type Sale = { id: number; created_at: string; product_name: string; quantity: number; price: number; category: string; umbrella_number: string; };
-type StoreDetails = { id: string; name: string; slug: string; primary_color: string; bg_color: string; owner_id: string; category_prefs: any[]; store_type: string; };
+type StoreDetails = { id: string; name: string; slug: string; primary_color: string; bg_color: string; owner_id: string; category_prefs: any[]; store_type: string; saved_themes?: any[]; };
 
 const AnimatedCounter = ({ value }: { value: number }) => {
     const [displayVal, setDisplayVal] = useState(value);
@@ -58,11 +58,11 @@ export default function AdminPage() {
   const [newProductOptions, setNewProductOptions] = useState<string[]>([]);
   const [currentOption, setCurrentOption] = useState('');
 
-  // ⚡ ENTERPRISE ZONE MANAGER STATES ⚡
   const [activeZone, setActiveZone] = useState<string>('Main');
   const [bulkPrefix, setBulkPrefix] = useState('');
   const [bulkStart, setBulkStart] = useState('1');
-  const [bulkEnd, setBulkEnd] = useState('10');
+  // ⚡ FIX: Η προεπιλογή πλέον είναι 1 για να μην δημιουργεί μαζικά κατά λάθος ⚡
+  const [bulkEnd, setBulkEnd] = useState('1');
   const [selectedAssetType, setSelectedAssetType] = useState('Τραπέζι');
   const [isQRModalOpen, setIsQRModalOpen] = useState(false);
   
@@ -83,6 +83,7 @@ export default function AdminPage() {
   const [settingsColor, setSettingsColor] = useState('');
   const [settingsBgColor, setSettingsBgColor] = useState('');
   const [catSettings, setCatSettings] = useState<{name: string, bg_color: string, text_color: string, sort_order: number}[]>([]);
+  const [savedThemes, setSavedThemes] = useState<{name: string, primary: string, bg: string}[]>([]);
 
   const [statsView, setStatsView] = useState<'daily' | 'insights'>('daily');
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -162,7 +163,19 @@ export default function AdminPage() {
 
   const handleAuth = async (e: React.FormEvent) => { e.preventDefault(); setLoadingAuth(true); if (isLogin) { const { error } = await supabase.auth.signInWithPassword({ email, password }); if (error) alert(error.message); } else { const { error } = await supabase.auth.signUp({ email, password }); if (error) alert(error.message); else alert("Επιτυχής εγγραφή!"); } setLoadingAuth(false); };
   const handleLogout = async () => await supabase.auth.signOut();
-  const checkUserStore = async (userId: string) => { const { data } = await supabase.from('stores').select('*').eq('owner_id', userId).single(); if (data) { setStore(data); setSettingsName(data.name); setSettingsColor(data.primary_color); setSettingsBgColor(data.bg_color); fetchDataForStore(data.id); } else setStore(null); setLoadingAuth(false); };
+  
+  const checkUserStore = async (userId: string) => { 
+      const { data } = await supabase.from('stores').select('*').eq('owner_id', userId).single(); 
+      if (data) { 
+          setStore(data); 
+          setSettingsName(data.name); 
+          setSettingsColor(data.primary_color); 
+          setSettingsBgColor(data.bg_color); 
+          setSavedThemes(data.saved_themes || []);
+          fetchDataForStore(data.id); 
+      } else setStore(null); 
+      setLoadingAuth(false); 
+  };
   
   const createStore = async () => { 
       if (!setupName || !setupSlug) return alert("Συμπληρώστε τα πεδία!"); 
@@ -189,7 +202,6 @@ export default function AdminPage() {
 
   const resetTable = async (uNum: string) => { if (!store) return; if (confirm(`Καθαρισμός ${term.unit.toLowerCase()} ${uNum};`)) { const tableOrders = orders.filter(o => o.umbrella_number === uNum); for (const order of tableOrders) await archiveOrder(order); await supabase.from('service_requests').delete().eq('umbrella_number', uNum).eq('store_id', store.id); fetchRequests(store.id); fetchOrders(store.id); } };
   
-  // ⚡ MASS CREATION LOGIC ⚡
   const handleBulkAdd = async () => {
       if (!store || !activeZone) return alert("Δημιουργήστε ή επιλέξτε μια Ζώνη πρώτα!");
       const start = parseInt(bulkStart); const end = parseInt(bulkEnd);
@@ -202,7 +214,7 @@ export default function AdminPage() {
       
       const { error } = await supabase.from('umbrellas').insert(toInsert);
       if (error) alert("Σφάλμα δημιουργίας. Μήπως υπάρχουν ήδη αυτά τα νούμερα;");
-      else { setBulkPrefix(''); setBulkStart('1'); setBulkEnd('10'); fetchUmbrellas(store.id); }
+      else { setBulkPrefix(''); setBulkStart('1'); setBulkEnd('1'); fetchUmbrellas(store.id); } // Επαναφορά στο 1
   };
 
   const createNewZone = () => {
@@ -210,10 +222,54 @@ export default function AdminPage() {
       if (zone && zone.trim() !== '') setActiveZone(zone.trim());
   };
 
+  // ⚡ FIX: Νέα λειτουργία διαγραφής Ζώνης ⚡
+  const deleteZone = async (zoneToDelete: string) => {
+      if (zoneToDelete === 'Main') return alert("Η βασική ζώνη (Main) δεν μπορεί να διαγραφεί.");
+      if (confirm(`ΠΡΟΣΟΧΗ: Είστε σίγουροι ότι θέλετε να διαγράψετε τη ζώνη "${zoneToDelete}" και ΟΛΑ τα τραπέζια που περιέχει;`)) {
+          if (!store) return;
+          const { error } = await supabase.from('umbrellas').delete().eq('store_id', store.id).eq('zone_name', zoneToDelete);
+          if (!error) {
+              fetchUmbrellas(store.id);
+              if (activeZone === zoneToDelete) setActiveZone('Main');
+          } else {
+              alert("Σφάλμα κατά τη διαγραφή της ζώνης.");
+          }
+      }
+  };
+
   const handleMouseUp = async () => { if (draggingId === null) return; const moved = umbrellas.find(u => u.id === draggingId); if (moved) await supabase.from('umbrellas').update({ x_pos: moved.x_pos, y_pos: moved.y_pos }).eq('id', draggingId); setDraggingId(null); };
   const handleCopyLink = () => { if (!store) return; const url = `${typeof window !== 'undefined' ? window.location.origin : ''}/?store=${store.slug}`; navigator.clipboard.writeText(url); alert("Το Link αντιγράφηκε!"); };
   const moveCatUp = (index: number) => { if (index === 0) return; const newCats = [...catSettings]; const temp = newCats[index].sort_order; newCats[index].sort_order = newCats[index - 1].sort_order; newCats[index - 1].sort_order = temp; setCatSettings(newCats.sort((a,b) => a.sort_order - b.sort_order).map((m,i) => ({...m, sort_order: i}))); };
   const moveCatDown = (index: number) => { if (index === catSettings.length - 1) return; const newCats = [...catSettings]; const temp = newCats[index].sort_order; newCats[index].sort_order = newCats[index + 1].sort_order; newCats[index + 1].sort_order = temp; setCatSettings(newCats.sort((a,b) => a.sort_order - b.sort_order).map((m,i) => ({...m, sort_order: i}))); };
+  
+  const handleSaveTheme = async () => {
+      if (!store) return;
+      const themeName = prompt("Ονομασία νέου Theme (π.χ. Summer, Dark Mode):");
+      if (!themeName || themeName.trim() === '') return;
+      
+      const newTheme = { name: themeName.trim(), primary: settingsColor, bg: settingsBgColor };
+      const updatedThemes = [...savedThemes, newTheme];
+      
+      const { error } = await supabase.from('stores').update({ saved_themes: updatedThemes }).eq('id', store.id);
+      if (!error) {
+          setSavedThemes(updatedThemes);
+          alert("Το Theme αποθηκεύτηκε επιτυχώς!");
+      } else {
+          alert("Υπήρξε πρόβλημα στην αποθήκευση του Theme.");
+      }
+  };
+
+  const handleDeleteTheme = async (index: number) => {
+      if (!store || !confirm("Σίγουρα θέλετε να διαγράψετε αυτό το Theme;")) return;
+      const updatedThemes = savedThemes.filter((_, i) => i !== index);
+      const { error } = await supabase.from('stores').update({ saved_themes: updatedThemes }).eq('id', store.id);
+      if (!error) setSavedThemes(updatedThemes);
+  };
+
+  const applyTheme = (primary: string, bg: string) => {
+      setSettingsColor(primary);
+      setSettingsBgColor(bg);
+  };
   
   const changeDate = (days: number) => { const d = new Date(selectedDate); d.setDate(d.getDate() + days); setSelectedDate(d.toISOString().split('T')[0]); };
   let touchStartX = 0; const handleTouchStart = (e: React.TouchEvent) => { touchStartX = e.touches[0].clientX; }; const handleTouchEnd = (e: React.TouchEvent) => { const touchEndX = e.changedTouches[0].clientX; if (touchStartX - touchEndX > 50) changeDate(1); if (touchStartX - touchEndX < -50) changeDate(-1); };
@@ -224,7 +280,6 @@ export default function AdminPage() {
   const bestSellersObj: Record<string, { name: string; qty: number; revenue: number }> = {};
   const categoryStatsObj: Record<string, number> = {};
   
-  // ⚡ HOURLY REVENUE LOGIC FOR CHART ⚡
   const hourlyRevenue: number[] = Array(24).fill(0);
   
   sales.forEach(sale => { 
@@ -237,7 +292,7 @@ export default function AdminPage() {
       hourlyRevenue[saleHour] += (sale.price * sale.quantity);
   });
   
-  const maxHourlyRev = Math.max(...hourlyRevenue, 1); // Avoid division by zero
+  const maxHourlyRev = Math.max(...hourlyRevenue, 1);
   const activeHours = hourlyRevenue.map((rev, idx) => ({ hour: idx, rev })).filter(h => h.rev > 0);
   const chartStartHour = activeHours.length > 0 ? Math.max(0, activeHours[0].hour - 1) : 8;
   const chartEndHour = activeHours.length > 0 ? Math.min(23, activeHours[activeHours.length - 1].hour + 1) : 23;
@@ -354,7 +409,6 @@ export default function AdminPage() {
                 const oldestTime = tableOrders.length > 0 ? Math.min(...tableOrders.map(o => new Date(o.created_at).getTime())) : 0;
                 const maxWaitTime = oldestTime ? Math.floor((new Date().getTime() - oldestTime) / 60000) : 0;
                 
-                // Βρες σε ποια ζώνη ανήκει αυτή η παραγγελία
                 const uInfo = umbrellas.find(u => u.number === uNum);
                 const uZone = uInfo?.zone_name || 'Άγνωστη Ζώνη';
                 const uType = uInfo?.asset_type || term.unit;
@@ -363,9 +417,12 @@ export default function AdminPage() {
                 const isSquatter = maxWaitTime >= 45 && totalVal <= 12;
                 const isCriticalAlert = tableRequests.length > 0 || tableOrders.some(o => o.status === 'new' || o.status === 'preparing');
                 
+                const hasGift = tableOrders.some(o => o.is_gift === true || String(o.is_gift) === 'true' || (o.to_umbrella != null && o.to_umbrella.trim() !== ''));
+                
                 let cardBorder = "border-white/10 shadow-xl"; let headerBg = "bg-black/20 border-white/5"; let badge = null;
 
                 if (tableRequests.length > 0) { cardBorder = "border-red-500 shadow-[0_0_30px_rgba(239,68,68,0.3)]"; headerBg = "bg-red-500/10 border-red-500/30"; } 
+                else if (hasGift) { cardBorder = "border-purple-500 shadow-[0_0_40px_rgba(168,85,247,0.3)]"; headerBg = "bg-purple-500/10 border-purple-500/30"; badge = <span className="bg-purple-500 text-white px-2 py-1 rounded font-black text-[9px] uppercase tracking-widest flex items-center gap-1 shadow-[0_0_15px_rgba(168,85,247,0.5)]"><Gift size={12} className="animate-pulse"/> ΕΧΕΙ ΚΕΡΑΣΜΑ</span>; }
                 else if (isWhale) { cardBorder = "border-amber-400 shadow-[0_0_40px_rgba(251,191,36,0.3)]"; headerBg = "bg-amber-500/10 border-amber-400/30"; badge = <span className="bg-amber-500 text-amber-950 px-2 py-1 rounded font-black text-[9px] uppercase tracking-widest flex items-center gap-1 shadow-[0_0_15px_rgba(251,191,36,0.5)]"><Flame size={12}/> VIP WHALE</span>; } 
                 else if (isSquatter) { cardBorder = "border-blue-500 shadow-[0_0_30px_rgba(59,130,246,0.3)]"; headerBg = "bg-blue-500/10 border-blue-500/30"; badge = <span className="bg-blue-500 text-white px-2 py-1 rounded font-black text-[9px] uppercase tracking-widest flex items-center gap-1 shadow-[0_0_15px_rgba(59,130,246,0.5)]"><Snowflake size={12}/> LOW SPEND</span>; } 
                 else if (isCriticalAlert) { cardBorder = "border-cyan-500 shadow-[0_0_30px_rgba(6,182,212,0.2)]"; headerBg = "bg-cyan-500/10 border-cyan-500/30"; }
@@ -374,7 +431,7 @@ export default function AdminPage() {
                     <div key={uNum} className={`rounded-[2rem] border overflow-hidden bg-white/5 backdrop-blur-xl transition-all duration-300 ${cardBorder}`}>
                         <div className={`p-5 flex justify-between items-center border-b ${headerBg}`}>
                             <div className="flex items-center gap-3">
-                                <div className={`w-12 h-12 rounded-[1rem] flex items-center justify-center font-black text-2xl shadow-lg ${tableRequests.length > 0 ? 'bg-red-500 text-white' : isWhale ? 'bg-amber-500 text-amber-950' : isSquatter ? 'bg-blue-500 text-white' : 'bg-white/10 text-white'}`}>{uNum}</div>
+                                <div className={`w-12 h-12 rounded-[1rem] flex items-center justify-center font-black text-2xl shadow-lg ${tableRequests.length > 0 ? 'bg-red-500 text-white' : hasGift ? 'bg-purple-600 text-white shadow-[0_0_20px_rgba(168,85,247,0.5)]' : isWhale ? 'bg-amber-500 text-amber-950' : isSquatter ? 'bg-blue-500 text-white' : 'bg-white/10 text-white'}`}>{uNum}</div>
                                 <div>
                                     <div className="flex items-center gap-2"><h2 className="text-sm font-black uppercase tracking-widest text-white">{uType} {uNum}</h2> {badge}</div>
                                     <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 mt-1">{uZone}</p>
@@ -395,10 +452,26 @@ export default function AdminPage() {
                             {tableOrders.map(o => {
                                 const isNew = o.status === 'new' || o.status === 'preparing';
                                 const isShipped = o.status === 'shipped';
+                                
+                                const isGiftOrder = o.is_gift === true || String(o.is_gift) === 'true' || (o.to_umbrella != null && o.to_umbrella.trim() !== '');
+
                                 return (
                                 <div key={o.id} className={`p-5 rounded-[1.5rem] border relative overflow-hidden backdrop-blur-md transition-all ${isNew ? 'bg-white/5 border-white/10 shadow-lg' : 'bg-transparent border-white/5 opacity-60 hover:opacity-100'}`}>
                                     <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${isNew ? 'bg-cyan-500' : 'bg-emerald-500'}`}></div>
-                                    {o.is_gift && <div className="bg-purple-500/10 border border-purple-500/30 p-3 rounded-xl mb-4 flex items-center justify-between text-purple-300"><div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em]"><Gift size={14} className="text-purple-400 animate-pulse"/> ΚΕΡΑΣΜΑ</div><div className="text-[10px] font-bold bg-purple-900/50 px-2 py-1 rounded-md border border-purple-500/30">ΑΠΟ {o.from_umbrella} <ArrowRight size={10} className="inline"/> {o.to_umbrella}</div></div>}
+                                    
+                                    {isGiftOrder && (
+                                        <div className="bg-purple-500/20 border border-purple-500/40 p-4 rounded-xl mb-4 shadow-lg relative overflow-hidden">
+                                            <div className="absolute inset-0 bg-[linear-gradient(45deg,transparent_25%,rgba(255,255,255,0.05)_50%,transparent_75%)] bg-[length:250%_250%,100%_100%] animate-[shimmer_2s_infinite]"></div>
+                                            <div className="flex justify-between items-center mb-2 relative z-10">
+                                                <span className="text-[10px] font-black text-purple-300 uppercase tracking-[0.2em] flex items-center gap-2"><Gift size={16} className="animate-pulse"/> ΚΕΡΑΣΜΑ</span>
+                                                <span className="text-[8px] font-black bg-black/40 text-purple-300 px-2 py-1 rounded-md">ΠΛΗΡΩΝΕΙ: ΤΡΑΠΕΖΙ {o.umbrella_number}</span>
+                                            </div>
+                                            <div className="bg-purple-600 text-white font-black text-xs sm:text-sm uppercase tracking-widest p-2.5 rounded-lg text-center border border-purple-400 shadow-md relative z-10">
+                                                ΠΑΡΑΔΟΣΗ ΣΤΟ: {o.to_umbrella || 'ΑΓΝΩΣΤΟ'}
+                                            </div>
+                                        </div>
+                                    )}
+                                    
                                     <div className="flex justify-between items-start mb-4 pl-3"><div className="flex items-center gap-2"><span className={`text-[9px] font-black uppercase tracking-[0.2em] px-2.5 py-1 rounded-md text-slate-900 ${isNew ? 'bg-cyan-400' : 'bg-emerald-500 text-white'}`}>{isNew ? 'ΕΚΚΡΕΜΕΙ' : 'ΣΕΡΒΙΡΙΣΤΗΚΕ'}</span><span className="text-[10px] font-bold text-slate-400 flex items-center gap-1"><Clock size={12}/> {getWaitTime(o.created_at)}'</span></div></div>
                                     <div className={`space-y-2 mb-6 pl-3 ${isShipped ? 'opacity-70 grayscale' : ''}`}>{o.items.map((item, idx) => (<div key={idx} className="flex items-start gap-3 text-sm font-medium text-slate-200"><span className="font-black text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-2 py-0.5 rounded-md text-xs">{item.quantity}x</span><span className="leading-tight pt-0.5">{item.uniqueName}</span></div>))}</div>
                                     {isNew ? (<button onClick={() => updateOrderStatus(o)} className="w-full py-4 rounded-xl font-black text-[12px] uppercase tracking-widest transition-all bg-cyan-500 text-slate-950 hover:bg-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.3)] flex items-center justify-center gap-2"><Zap size={16}/> ΕΤΟΙΜΟ & ΣΕΡΒΙΡΙΣΜΑ</button>) : (<div className="flex items-center justify-between mt-2 pt-4 border-t border-white/5"><p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Αυτοματη Αρχειοθετηση σε 5'</p><button onClick={() => updateOrderStatus(o)} className="text-[9px] bg-white/5 border border-white/10 text-slate-400 px-3 py-2 rounded-lg font-black uppercase hover:text-white hover:bg-white/10 transition-colors">ΚΛΕΙΣΙΜΟ [X]</button></div>)}
@@ -423,10 +496,17 @@ export default function AdminPage() {
                     
                     <div className="space-y-2 flex-1 overflow-y-auto pr-2 no-scrollbar">
                         {uniqueZones.map(zone => (
-                            <button key={zone} onClick={() => setActiveZone(zone)} className={`w-full p-4 rounded-2xl flex items-center justify-between transition-all border text-left ${activeZone === zone ? 'bg-purple-600 border-purple-400 text-white shadow-lg' : 'bg-black/40 border-white/5 text-slate-400 hover:text-white hover:border-white/20'}`}>
-                                <span className="font-black text-sm uppercase tracking-wider">{zone}</span>
-                                <span className="text-[10px] font-bold opacity-60">{umbrellas.filter(u => (u.zone_name || 'Main') === zone).length} ITEMS</span>
-                            </button>
+                            <div key={zone} className={`w-full rounded-2xl flex items-center transition-all border ${activeZone === zone ? 'bg-purple-600 border-purple-400 text-white shadow-lg' : 'bg-black/40 border-white/5 text-slate-400 hover:border-white/20'}`}>
+                                <button onClick={() => setActiveZone(zone)} className="flex-1 p-4 flex items-center justify-between text-left">
+                                    <span className="font-black text-sm uppercase tracking-wider">{zone}</span>
+                                    <span className="text-[10px] font-bold opacity-60">{umbrellas.filter(u => (u.zone_name || 'Main') === zone).length} ITEMS</span>
+                                </button>
+                                {zone !== 'Main' && (
+                                    <button onClick={(e) => { e.stopPropagation(); deleteZone(zone); }} className={`p-4 hover:text-red-400 transition-colors ${activeZone === zone ? 'text-white/70' : 'text-slate-500'}`}>
+                                        <Trash2 size={16} />
+                                    </button>
+                                )}
+                            </div>
                         ))}
                     </div>
                     
@@ -485,7 +565,6 @@ export default function AdminPage() {
                      
                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 animate-in slide-in-from-bottom-4"><div className="bg-gradient-to-br from-emerald-500/10 to-transparent border border-emerald-500/20 p-6 rounded-[2rem] shadow-lg overflow-hidden relative"><TrendingUp className="absolute -right-4 -top-4 text-emerald-500/20 w-32 h-32"/><p className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-500 mb-2 relative z-10">ΕΣΟΔΑ ΗΜΕΡΑΣ</p><p className="text-4xl font-black text-white tracking-tighter relative z-10"><AnimatedCounter value={dayRevenue} />€</p></div><div className="bg-white/5 backdrop-blur-xl border border-white/10 p-6 rounded-[2rem] shadow-lg"><p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-2 flex items-center gap-2"><Activity size={14}/> ΟΓΚΟΣ ΠΩΛΗΣΕΩΝ</p><p className="text-4xl font-black text-white tracking-tighter">{itemsSold} <span className="text-base text-slate-500 font-bold tracking-widest uppercase">Τεμαχια</span></p></div><div className="bg-white/5 backdrop-blur-xl border border-white/10 p-6 rounded-[2rem] shadow-lg"><p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-2 flex items-center gap-2"><DollarSign size={14}/> ΜΕΣΗ ΑΞΙΑ ΠΡΟΙΟΝΤΟΣ</p><p className="text-4xl font-black text-cyan-400 tracking-tighter">{avgTicket.toFixed(2)}€</p></div></div>
                      
-                     {/* ⚡ THE NEW HOURLY REVENUE CHART ⚡ */}
                      <div className="bg-white/5 backdrop-blur-xl border border-white/10 p-8 rounded-[2.5rem] shadow-2xl animate-in slide-in-from-bottom-6">
                         <div className="flex justify-between items-end mb-8">
                             <div>
@@ -495,7 +574,6 @@ export default function AdminPage() {
                         </div>
                         
                         <div className="h-48 flex items-end gap-2 relative mt-4">
-                            {/* Y-Axis Lines & Labels */}
                             <div className="absolute inset-0 flex flex-col justify-between pointer-events-none pb-6 opacity-20">
                                 <div className="border-t border-dashed border-white w-full"></div>
                                 <div className="border-t border-dashed border-white w-full"></div>
@@ -503,7 +581,6 @@ export default function AdminPage() {
                             </div>
                             <div className="absolute left-0 -top-4 text-[9px] font-black text-slate-500">{maxHourlyRev.toFixed(0)}€</div>
                             
-                            {/* The Bars */}
                             {Array.from({ length: chartEndHour - chartStartHour + 1 }).map((_, i) => {
                                 const currentHour = chartStartHour + i;
                                 const rev = hourlyRevenue[currentHour] || 0;
@@ -512,18 +589,13 @@ export default function AdminPage() {
                                 
                                 return (
                                     <div key={currentHour} className="flex-1 flex flex-col justify-end items-center group relative h-full pb-6 z-10">
-                                        {/* Tooltip on Hover */}
                                         <div className="absolute -top-10 bg-black/80 border border-white/10 text-white text-[10px] font-black px-3 py-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap shadow-xl">
                                             {currentHour}:00 - {rev.toFixed(2)}€
                                         </div>
-                                        
-                                        {/* Bar */}
                                         <div 
                                             className={`w-full max-w-[40px] rounded-t-lg transition-all duration-700 ease-out group-hover:brightness-125 ${isPeak ? 'bg-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.5)]' : 'bg-white/20'}`} 
                                             style={{ height: `${heightPercentage}%`, minHeight: rev > 0 ? '4px' : '0px' }}
                                         ></div>
-                                        
-                                        {/* X-Axis Label */}
                                         <span className="text-[9px] font-black text-slate-500 mt-2 absolute bottom-0">{currentHour}:00</span>
                                     </div>
                                 );
@@ -549,7 +621,32 @@ export default function AdminPage() {
 
         {/* TAB: ΡΥΘΜΙΣΕΙΣ */}
         {adminTab === 'settings' && (
-          <div className="space-y-8 pb-10"><div className="bg-white/5 backdrop-blur-xl p-6 sm:p-8 rounded-[2rem] border border-white/10 shadow-2xl max-w-3xl"><h3 className="text-xl font-black mb-2 text-white playfair tracking-wide">Brand Identity</h3><div className="space-y-6 my-8"><div className="bg-black/30 p-5 rounded-xl border border-white/5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6"><div className="w-full min-w-0"><label className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 mb-2 block">ΔΗΜΟΣΙΟ LINK ΠΕΛΑΤΩΝ</label><p className="font-mono text-cyan-400 text-xs sm:text-sm font-bold bg-cyan-500/10 p-3 rounded-lg border border-cyan-500/20 truncate select-all">{typeof window !== 'undefined' ? window.location.origin : ''}/?store={store.slug}</p></div><button onClick={handleCopyLink} className="w-full sm:w-auto bg-white/10 p-4 rounded-xl hover:bg-white/20 transition-colors text-white flex items-center justify-center gap-2 font-bold text-xs shrink-0 tracking-widest uppercase"><Copy size={16}/> ΑΝΤΙΓΡΑΦΗ</button></div><div><label className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 mb-3 block">ΟΝΟΜΑΣΙΑ ΜΟΝΑΔΑΣ</label><input className="w-full bg-black/40 border border-white/5 p-4 rounded-xl text-white font-bold outline-none focus:border-cyan-500 transition-colors" value={settingsName} onChange={e => setSettingsName(e.target.value)} /></div><div className="grid grid-cols-1 sm:grid-cols-2 gap-6"><div><label className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 mb-3 block">ΧΡΩΜΑ ΚΟΥΜΠΙΩΝ (ACCENT)</label><div className="flex gap-4 items-center bg-black/40 border border-white/5 p-2 rounded-xl"><input type="color" className="w-14 h-14 rounded-lg cursor-pointer bg-transparent border-0 outline-none" value={settingsColor} onChange={e => setSettingsColor(e.target.value)} /><span className="font-mono text-slate-300 text-sm font-bold">{settingsColor.toUpperCase()}</span></div></div><div><label className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 mb-3 block">ΧΡΩΜΑ ΦΟΝΤΟΥ (PREMIUM DARK)</label><div className="flex gap-4 items-center bg-black/40 border border-white/5 p-2 rounded-xl"><input type="color" className="w-14 h-14 rounded-lg cursor-pointer bg-transparent border-0 outline-none" value={settingsBgColor} onChange={e => setSettingsBgColor(e.target.value)} /><span className="font-mono text-slate-300 text-sm font-bold">{settingsBgColor.toUpperCase()}</span></div></div></div></div><button onClick={updateSettings} className="w-full bg-emerald-500 text-slate-950 px-8 py-5 rounded-xl font-black uppercase tracking-[0.2em] hover:bg-emerald-400 transition-all active:scale-95 text-xs flex justify-center items-center gap-2 shadow-[0_0_20px_rgba(16,185,129,0.3)]">ΑΠΟΘΗΚΕΥΣΗ BRANDING</button></div><div className="bg-white/5 backdrop-blur-xl p-6 sm:p-8 rounded-[2rem] border border-white/10 shadow-2xl max-w-4xl"><h3 className="text-xl font-black mb-2 text-white flex items-center gap-3 playfair tracking-wide"><Palette className="text-purple-500"/> Στήσιμο Κατηγοριών</h3><div className="space-y-4 my-8">{catSettings.map((cat, index) => (<div key={cat.name} className="flex flex-col sm:flex-row sm:items-center gap-5 bg-black/40 p-4 rounded-2xl border border-white/5 hover:border-white/10 transition-colors"><div className="flex items-center gap-4 flex-1"><div className="flex flex-col gap-1"><button onClick={() => moveCatUp(index)} className="bg-white/5 text-slate-400 hover:text-white p-1.5 rounded-lg transition-colors"><ArrowUp size={14}/></button><button onClick={() => moveCatDown(index)} className="bg-white/5 text-slate-400 hover:text-white p-1.5 rounded-lg transition-colors"><ArrowDown size={14}/></button></div><span className="font-black text-base text-white uppercase tracking-widest">{cat.name}</span></div><div className="flex items-center gap-5 bg-white/5 p-3 rounded-xl border border-white/5"><div className="flex items-center gap-3"><label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Card</label><input type="color" className="w-8 h-8 rounded cursor-pointer bg-transparent border-0 outline-none" value={cat.bg_color} onChange={e => { const newArr = [...catSettings]; newArr[index].bg_color = e.target.value; setCatSettings(newArr); }} /></div><div className="w-px h-6 bg-white/10"></div><div className="flex items-center gap-3"><label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Text</label><input type="color" className="w-8 h-8 rounded cursor-pointer bg-transparent border-0 outline-none" value={cat.text_color} onChange={e => { const newArr = [...catSettings]; newArr[index].text_color = e.target.value; setCatSettings(newArr); }} /></div></div><div className="w-full sm:w-32 h-14 flex items-center justify-center font-black uppercase text-[10px] tracking-widest rounded-xl shadow-lg border border-white/10 relative overflow-hidden" style={{ backgroundColor: cat.bg_color, color: cat.text_color }}><div className="absolute inset-0 opacity-20" style={{ background: `radial-gradient(circle at top left, #ffffff 0%, transparent 80%)` }}></div>PREVIEW</div></div>))}</div><button onClick={updateCategorySettings} className="w-full sm:w-auto bg-purple-500 text-white px-8 py-5 rounded-xl font-black uppercase tracking-[0.2em] hover:bg-purple-400 transition-all active:scale-95 text-xs shadow-[0_0_20px_rgba(168,85,247,0.3)]">ΑΠΟΘΗΚΕΥΣΗ UI</button></div></div>
+          <div className="space-y-8 pb-10"><div className="bg-white/5 backdrop-blur-xl p-6 sm:p-8 rounded-[2rem] border border-white/10 shadow-2xl max-w-3xl"><h3 className="text-xl font-black mb-2 text-white playfair tracking-wide">Brand Identity</h3><div className="space-y-6 my-8"><div className="bg-black/30 p-5 rounded-xl border border-white/5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6"><div className="w-full min-w-0"><label className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 mb-2 block">ΔΗΜΟΣΙΟ LINK ΠΕΛΑΤΩΝ</label><p className="font-mono text-cyan-400 text-xs sm:text-sm font-bold bg-cyan-500/10 p-3 rounded-lg border border-cyan-500/20 truncate select-all">{typeof window !== 'undefined' ? window.location.origin : ''}/?store={store.slug}</p></div><button onClick={handleCopyLink} className="w-full sm:w-auto bg-white/10 p-4 rounded-xl hover:bg-white/20 transition-colors text-white flex items-center justify-center gap-2 font-bold text-xs shrink-0 tracking-widest uppercase"><Copy size={16}/> ΑΝΤΙΓΡΑΦΗ</button></div><div><label className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 mb-3 block">ΟΝΟΜΑΣΙΑ ΜΟΝΑΔΑΣ</label><input className="w-full bg-black/40 border border-white/5 p-4 rounded-xl text-white font-bold outline-none focus:border-cyan-500 transition-colors" value={settingsName} onChange={e => setSettingsName(e.target.value)} /></div><div className="grid grid-cols-1 sm:grid-cols-2 gap-6"><div><label className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 mb-3 block">ΧΡΩΜΑ ΚΟΥΜΠΙΩΝ (ACCENT)</label><div className="flex gap-4 items-center bg-black/40 border border-white/5 p-2 rounded-xl"><input type="color" className="w-14 h-14 rounded-lg cursor-pointer bg-transparent border-0 outline-none" value={settingsColor} onChange={e => setSettingsColor(e.target.value)} /><span className="font-mono text-slate-300 text-sm font-bold">{settingsColor.toUpperCase()}</span></div></div><div><label className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 mb-3 block">ΧΡΩΜΑ ΦΟΝΤΟΥ (PREMIUM DARK)</label><div className="flex gap-4 items-center bg-black/40 border border-white/5 p-2 rounded-xl"><input type="color" className="w-14 h-14 rounded-lg cursor-pointer bg-transparent border-0 outline-none" value={settingsBgColor} onChange={e => setSettingsBgColor(e.target.value)} /><span className="font-mono text-slate-300 text-sm font-bold">{settingsBgColor.toUpperCase()}</span></div></div></div>
+          
+          <div className="mt-8 border-t border-white/10 pt-6">
+              <div className="flex justify-between items-center mb-4">
+                  <label className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 block">ΑΠΟΘΗΚΕΥΜΕΝΑ THEMES</label>
+                  <button onClick={handleSaveTheme} className="text-[9px] bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-lg font-black uppercase tracking-widest transition-colors flex items-center gap-1 active:scale-95"><Plus size={12}/> ΑΠΟΘΗΚΕΥΣΗ ΤΡΕΧΟΝΤΟΣ</button>
+              </div>
+              {savedThemes.length === 0 ? (
+                  <p className="text-xs text-slate-500 font-bold italic">Δεν έχετε αποθηκεύσει κάποιο χρωματικό συνδυασμό ακόμα.</p>
+              ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                      {savedThemes.map((t, idx) => (
+                          <div key={idx} className="bg-black/40 border border-white/5 p-4 rounded-xl flex flex-col items-center gap-3 relative group cursor-pointer hover:border-white/20 transition-all hover:bg-white/5" onClick={() => applyTheme(t.primary, t.bg)}>
+                              <button onClick={(e) => { e.stopPropagation(); handleDeleteTheme(idx); }} className="absolute -top-2 -right-2 bg-red-500/80 hover:bg-red-500 text-white w-6 h-6 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all active:scale-90 shadow-lg"><X size={12}/></button>
+                              <div className="w-12 h-12 rounded-full flex overflow-hidden border border-white/20 shadow-lg">
+                                  <div className="w-1/2 h-full" style={{ backgroundColor: t.primary }}></div>
+                                  <div className="w-1/2 h-full" style={{ backgroundColor: t.bg }}></div>
+                              </div>
+                              <span className="text-[10px] font-black text-white uppercase tracking-widest truncate w-full text-center">{t.name}</span>
+                          </div>
+                      ))}
+                  </div>
+              )}
+          </div>
+          
+          </div><button onClick={updateSettings} className="w-full bg-emerald-500 text-slate-950 px-8 py-5 rounded-xl font-black uppercase tracking-[0.2em] hover:bg-emerald-400 transition-all active:scale-95 text-xs flex justify-center items-center gap-2 shadow-[0_0_20px_rgba(16,185,129,0.3)]">ΑΠΟΘΗΚΕΥΣΗ BRANDING</button></div><div className="bg-white/5 backdrop-blur-xl p-6 sm:p-8 rounded-[2rem] border border-white/10 shadow-2xl max-w-4xl"><h3 className="text-xl font-black mb-2 text-white flex items-center gap-3 playfair tracking-wide"><Palette className="text-purple-500"/> Στήσιμο Κατηγοριών</h3><div className="space-y-4 my-8">{catSettings.map((cat, index) => (<div key={cat.name} className="flex flex-col sm:flex-row sm:items-center gap-5 bg-black/40 p-4 rounded-2xl border border-white/5 hover:border-white/10 transition-colors"><div className="flex items-center gap-4 flex-1"><div className="flex flex-col gap-1"><button onClick={() => moveCatUp(index)} className="bg-white/5 text-slate-400 hover:text-white p-1.5 rounded-lg transition-colors"><ArrowUp size={14}/></button><button onClick={() => moveCatDown(index)} className="bg-white/5 text-slate-400 hover:text-white p-1.5 rounded-lg transition-colors"><ArrowDown size={14}/></button></div><span className="font-black text-base text-white uppercase tracking-widest">{cat.name}</span></div><div className="flex items-center gap-5 bg-white/5 p-3 rounded-xl border border-white/5"><div className="flex items-center gap-3"><label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Card</label><input type="color" className="w-8 h-8 rounded cursor-pointer bg-transparent border-0 outline-none" value={cat.bg_color} onChange={e => { const newArr = [...catSettings]; newArr[index].bg_color = e.target.value; setCatSettings(newArr); }} /></div><div className="w-px h-6 bg-white/10"></div><div className="flex items-center gap-3"><label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Text</label><input type="color" className="w-8 h-8 rounded cursor-pointer bg-transparent border-0 outline-none" value={cat.text_color} onChange={e => { const newArr = [...catSettings]; newArr[index].text_color = e.target.value; setCatSettings(newArr); }} /></div></div><div className="w-full sm:w-32 h-14 flex items-center justify-center font-black uppercase text-[10px] tracking-widest rounded-xl shadow-lg border border-white/10 relative overflow-hidden" style={{ backgroundColor: cat.bg_color, color: cat.text_color }}><div className="absolute inset-0 opacity-20" style={{ background: `radial-gradient(circle at top left, #ffffff 0%, transparent 80%)` }}></div>PREVIEW</div></div>))}</div><button onClick={updateCategorySettings} className="w-full sm:w-auto bg-purple-500 text-white px-8 py-5 rounded-xl font-black uppercase tracking-[0.2em] hover:bg-purple-400 transition-all active:scale-95 text-xs shadow-[0_0_20px_rgba(168,85,247,0.3)]">ΑΠΟΘΗΚΕΥΣΗ UI</button></div></div>
         )}
 
       </main>

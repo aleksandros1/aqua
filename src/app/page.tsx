@@ -5,13 +5,14 @@ import { supabase } from './lib/supabase';
 import { 
   ShoppingBag, ChevronLeft, Plus, Coffee, Umbrella, MapPin, 
   BellRing, CreditCard, Banknote, Smartphone, SplitSquareHorizontal, 
-  Gift, X, RotateCcw, Zap, Timer, CheckCircle2, WifiOff, RefreshCw, Hand, Info, ScanLine, Camera
+  Gift, X, RotateCcw, Zap, Timer, CheckCircle2, WifiOff, RefreshCw, Hand, Info, ScanLine, Camera, Receipt
 } from 'lucide-react';
 
 type MenuItem = { id: number; name: string; price: number; category: string; description?: string; is_available: boolean; options?: string; store_id: string; };
 type CartItem = MenuItem & { cartId: number; uniqueName: string; quantity: number; };
-type UmbrellaType = { id: number; number: string; store_id: string; };
+type UmbrellaType = { id: number; number: string; store_id: string; x_pos: number; y_pos: number; zone_name: string; asset_type: string; };
 type StoreDetails = { id: string; name: string; slug: string; primary_color: string; bg_color: string; category_prefs: any[]; store_type: string; };
+type Order = { id: number; created_at: string; total_price: number; status: string; items: any[]; is_gift: boolean; to_umbrella: string; };
 
 const FancyBackground = ({ themeColor }: { themeColor: string }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -80,9 +81,12 @@ export default function CustomerPage() {
   
   const [isServiceOpen, setIsServiceOpen] = useState(false);
   const [totalOwed, setTotalOwed] = useState(0);
+  const [myOrders, setMyOrders] = useState<Order[]>([]);
+  const [isBillModalOpen, setIsBillModalOpen] = useState(false);
 
   const [isGiftMode, setIsGiftMode] = useState(false);
   const [targetUmbrella, setTargetUmbrella] = useState('');
+  const [giftZone, setGiftZone] = useState<string>('');
 
   const [activeOrder, setActiveOrder] = useState<any>(null);
   const [lastOrder, setLastOrder] = useState<CartItem[] | null>(null);
@@ -162,19 +166,38 @@ export default function CustomerPage() {
     return () => { if (timer1) clearTimeout(timer1); if (timer2) clearTimeout(timer2); };
   }, [activeOrder?.status]);
 
-  async function fetchUmbrellas(storeId: string) { const { data } = await supabase.from('umbrellas').select('id, number').eq('store_id', storeId); if (data) setUmbrellas((data as UmbrellaType[]).sort((a, b) => parseInt(a.number) - parseInt(b.number))); }
+  async function fetchUmbrellas(storeId: string) { const { data } = await supabase.from('umbrellas').select('*').eq('store_id', storeId); if (data) setUmbrellas((data as UmbrellaType[]).sort((a, b) => parseInt(a.number) - parseInt(b.number))); }
+  
   async function checkIfTableIsCleared(uNum: string, storeId: string) {
     const { data } = await supabase.from('orders').select('id').eq('umbrella_number', uNum).eq('store_id', storeId);
-    if (!data || data.length === 0) { setActiveOrder(null); setTotalOwed(0); setCart([]); setLastOrder(null); localStorage.removeItem('aqua_last_order'); setIsServiceOpen(false); setIsCheckoutOpen(false); setIsRepeatModalOpen(false); setIsServedVisible(false); setActiveCategory(null); } else fetchMyBill(storeId);
+    if (!data || data.length === 0) { setActiveOrder(null); setTotalOwed(0); setMyOrders([]); setCart([]); setLastOrder(null); localStorage.removeItem('aqua_last_order'); setIsServiceOpen(false); setIsCheckoutOpen(false); setIsRepeatModalOpen(false); setIsServedVisible(false); setActiveCategory(null); setIsBillModalOpen(false); } else fetchMyBill(storeId);
   }
+  
   async function fetchMenu(storeId: string) { const { data } = await supabase.from('menu').select('*').eq('store_id', storeId).order('name'); if (data) setMenu(data as MenuItem[]); }
-  async function fetchMyBill(storeId: string) { const { data } = await supabase.from('orders').select('total_price').eq('umbrella_number', umbrellaNumber).eq('store_id', storeId); if (data) setTotalOwed(data.reduce((acc, order) => acc + order.total_price, 0)); }
+  
+  async function fetchMyBill(storeId: string) { 
+      const { data } = await supabase.from('orders').select('*').eq('umbrella_number', umbrellaNumber).eq('store_id', storeId).order('created_at', { ascending: false }); 
+      if (data) { 
+          setMyOrders(data as Order[]); 
+          setTotalOwed(data.reduce((acc, order) => acc + order.total_price, 0)); 
+      } 
+  }
 
   const submitOrder = async (itemsToSubmit: CartItem[] = cart) => {
     triggerHaptic([30, 50, 30]);
     if (itemsToSubmit.length === 0 || !umbrellaNumber || !storeDetails) return;
     const totalPrice = itemsToSubmit.reduce((s, i) => s + (i.price * i.quantity), 0);
-    const orderPayload = { store_id: storeDetails.id, umbrella_number: isGiftMode ? targetUmbrella : umbrellaNumber, items: itemsToSubmit, total_price: totalPrice, status: 'new', is_gift: isGiftMode, from_umbrella: isGiftMode ? umbrellaNumber : null, to_umbrella: isGiftMode ? targetUmbrella : null };
+    
+    const orderPayload = { 
+        store_id: storeDetails.id, 
+        umbrella_number: umbrellaNumber, 
+        items: itemsToSubmit, 
+        total_price: totalPrice, 
+        status: 'new', 
+        is_gift: isGiftMode, 
+        from_umbrella: isGiftMode ? umbrellaNumber : null, 
+        to_umbrella: isGiftMode ? targetUmbrella : null 
+    };
 
     if (!isOnline) {
         localStorage.setItem('aqua_pending_order', JSON.stringify(orderPayload));
@@ -184,7 +207,7 @@ export default function CustomerPage() {
     const { error } = await supabase.from('orders').insert([orderPayload]);
     if (!error) {
       if (!isGiftMode) { localStorage.setItem('aqua_last_order', JSON.stringify(itemsToSubmit)); setLastOrder(itemsToSubmit); }
-      if (isGiftMode) showToast("Το Κέρασμα Εστάλη!", `Ετοιμάζεται για το ${getTerm(storeDetails?.store_type).unit.toLowerCase()} ${targetUmbrella}.`, 'gift');
+      if (isGiftMode) showToast("Το Κέρασμα Εστάλη!", `Ετοιμάζεται για το ${targetUmbrella}.`, 'gift');
       else showToast("Επιτυχία!", "Η παραγγελία εστάλη.", 'success');
       setCart([]); setIsCheckoutOpen(false); setIsGiftMode(false); setTargetUmbrella(''); setIsRepeatModalOpen(false);
     } else showToast("Σφάλμα", "Η παραγγελία δεν εστάλη.", "alert");
@@ -208,17 +231,40 @@ export default function CustomerPage() {
 
   const removeFromCart = (cartId: number) => { triggerHaptic(20); setCart(prev => prev.filter(item => item.cartId !== cartId)); };
   
-  const handleTouchStart = (product: MenuItem) => { if (product.is_available === false) return; triggerHaptic(10); touchTimer.current = setTimeout(() => { touchTimer.current = null; triggerHaptic([50, 100, 50]); submitFlashOrder(product); }, 500); };
-  const handleTouchEnd = (product: MenuItem, e: React.TouchEvent | React.MouseEvent) => {
-    if (product.is_available === false) { e.preventDefault(); return; } 
-    if (touchTimer.current) { clearTimeout(touchTimer.current); touchTimer.current = null; triggerHaptic(30); if (product.options && product.options.trim() !== '') { setSelectedProductForOptions(product); setSelectedOptions([]); } else setCart([...cart, {...product, uniqueName: product.name, quantity: 1, cartId: Math.random()}]); } else { e.preventDefault(); }
+  const handlePointerDown = (product: MenuItem, e: React.PointerEvent) => { 
+      if (product.is_available === false) return; 
+      triggerHaptic(10); 
+      touchTimer.current = setTimeout(() => { 
+          touchTimer.current = null; 
+          triggerHaptic([50, 100, 50]); 
+          submitFlashOrder(product); 
+      }, 500); 
+  };
+  
+  const handlePointerUp = (product: MenuItem, e: React.PointerEvent) => {
+    if (product.is_available === false) return; 
+    if (touchTimer.current) { 
+        clearTimeout(touchTimer.current); 
+        touchTimer.current = null; 
+        triggerHaptic(30); 
+        if (product.options && product.options.trim() !== '') { 
+            setSelectedProductForOptions(product); 
+            setSelectedOptions([]); 
+        } else { 
+            setCart(prev => [...prev, {...product, uniqueName: product.name, quantity: 1, cartId: Math.random()}]); 
+        } 
+    }
+  };
+
+  const handlePointerCancel = () => {
+      if (touchTimer.current) { clearTimeout(touchTimer.current); touchTimer.current = null; }
   };
 
   const submitFlashOrder = async (product: MenuItem) => {
     if (product.options && product.options.trim() !== '') { setSelectedProductForOptions(product); showToast("Επιλογή", "Επιλέξτε προτιμήσεις για την άμεση παραγγελία", "alert"); return; }
     if (!umbrellaNumber || !storeDetails) return;
     const orderItem: CartItem = { ...product, uniqueName: product.name, quantity: 1, cartId: Math.random() };
-    const orderPayload = { store_id: storeDetails.id, umbrella_number: isGiftMode ? targetUmbrella : umbrellaNumber, items: [orderItem], total_price: product.price, status: 'new', is_gift: isGiftMode, from_umbrella: isGiftMode ? umbrellaNumber : null, to_umbrella: isGiftMode ? targetUmbrella : null };
+    const orderPayload = { store_id: storeDetails.id, umbrella_number: umbrellaNumber, items: [orderItem], total_price: product.price, status: 'new', is_gift: isGiftMode, from_umbrella: isGiftMode ? umbrellaNumber : null, to_umbrella: isGiftMode ? targetUmbrella : null };
     const { error } = await supabase.from('orders').insert([orderPayload]);
     if (!error) { showToast("⚡ FLASH ORDER", "Εστάλη απευθείας στο Bar!", 'flash'); if (isGiftMode) { setIsGiftMode(false); setTargetUmbrella(''); } } else showToast("Σφάλμα Δικτύου", "Δοκιμάστε ξανά.", "alert");
   };
@@ -243,22 +289,21 @@ export default function CustomerPage() {
   if (!storeDetails && storeSlug) return <div className="fixed inset-0 bg-[#020617] flex items-center justify-center"><div className="w-10 h-10 border-4 border-slate-800 border-t-cyan-500 rounded-full animate-spin"></div></div>;
 
   const categoriesInMenu = Array.from(new Set(menu.map(m => m.category)));
-  const availableGiftUmbrellas = umbrellas.filter(u => u.number !== umbrellaNumber);
+  
+  const uniqueGiftZones = Array.from(new Set(umbrellas.map(u => u.zone_name || 'Main')));
+  const activeGiftZone = giftZone || (umbrellas.find(u => u.number === umbrellaNumber)?.zone_name) || uniqueGiftZones[0] || 'Main';
   
   const themeColor = storeDetails?.primary_color || '#06b6d4';
   const dynamicBgColor = storeDetails?.bg_color || '#020617'; 
   
-  // COLOR CONTRAST LOGIC
   const getContrast = (hexcolor: string) => { if (!hexcolor) return 'dark'; hexcolor = hexcolor.replace("#", ""); if (hexcolor.length === 3) hexcolor = hexcolor.split('').map(x => x + x).join(''); const r = parseInt(hexcolor.substring(0,2), 16), g = parseInt(hexcolor.substring(2,4), 16), b = parseInt(hexcolor.substring(4,6), 16); return ((r*299)+(g*587)+(b*114))/1000 >= 128 ? 'light' : 'dark'; };
-  
   const isDarkTheme = getContrast(dynamicBgColor) === 'dark';
   const textColor = isDarkTheme ? 'text-white' : 'text-slate-900';
-  const themeTextHex = isDarkTheme ? '#ffffff' : '#0f172a'; // For text on the background
+  const themeTextHex = isDarkTheme ? '#ffffff' : '#0f172a'; 
   const glassClass = isDarkTheme ? 'ios-glass-dark' : 'ios-glass';
 
-  // ⚡ THE FIX: Contrast text specifically for the colored buttons
   const isPrimaryDark = getContrast(themeColor) === 'dark';
-  const buttonTextHex = isPrimaryDark ? '#ffffff' : '#0f172a'; // If theme color is black, this becomes white!
+  const buttonTextHex = isPrimaryDark ? '#ffffff' : '#0f172a'; 
 
   const normalizeText = (text: string) => text ? text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase() : "";
   let rawPrefs = storeDetails?.category_prefs; let prefsArray: any[] = [];
@@ -291,11 +336,20 @@ export default function CustomerPage() {
         
         {activeOrder && activeOrder.status !== 'completed' && (
           <div className="px-5 sm:px-6 pb-2">
-            <div className={`p-5 rounded-[1.5rem] flex items-center gap-4 animate-in fade-in duration-300 transition-all border border-white/10 ${isServedVisible ? 'bg-emerald-500/90 text-white shadow-lg' : glassClass}`}>
-                {isServedVisible ? <CheckCircle2 size={28} className="text-white animate-in zoom-in duration-300"/> : <div className="relative"><div className="w-12 h-12 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: themeColor, borderTopColor: 'transparent' }}></div><Coffee className="absolute inset-0 m-auto" size={18} style={{ color: themeColor }}/></div>}
+            <div className={`p-5 rounded-[1.5rem] flex items-center gap-4 animate-in fade-in duration-300 transition-all border border-white/10 ${isServedVisible ? 'bg-emerald-500/90 text-white shadow-lg' : (activeOrder.is_gift ? 'bg-purple-600/90 text-white shadow-[0_0_20px_rgba(168,85,247,0.3)] border-purple-400/50' : glassClass)}`}>
+                {isServedVisible ? (
+                    <CheckCircle2 size={28} className="text-white animate-in zoom-in duration-300"/>
+                ) : activeOrder.is_gift ? (
+                    <Gift size={28} className="text-white animate-pulse" />
+                ) : (
+                    <div className="relative">
+                        <div className="w-12 h-12 border-2 rounded-full animate-spin" style={{ borderBottomColor: themeColor, borderLeftColor: themeColor, borderRightColor: themeColor, borderTopColor: 'transparent' }}></div>
+                        <Coffee className="absolute inset-0 m-auto" size={18} style={{ color: themeColor }}/>
+                    </div>
+                )}
                 <div>
-                    <p className="text-[9px] font-black uppercase tracking-[0.3em] opacity-60 mb-0.5" style={{ color: isServedVisible ? '#fff' : themeColor }}>ΕΞΕΛΙΞΗ</p>
-                    <p className="text-sm font-bold uppercase tracking-tight">{isServedVisible ? 'ΣΕΡΒΙΡΙΣΤΗΚΕ!' : <>{activeOrder.status === 'new' && 'Λήφθηκε στο Bar...'}{activeOrder.status === 'preparing' && 'Ετοιμάζεται...'}{activeOrder.status === 'shipped' && 'Ετοιμάστηκε & Έρχεται!'}</>}</p>
+                    <p className="text-[9px] font-black uppercase tracking-[0.3em] opacity-80 mb-0.5" style={{ color: (isServedVisible || activeOrder.is_gift) ? '#fff' : themeColor }}>{activeOrder.is_gift ? 'ΚΕΡΑΣΜΑ ΣΕ ΕΞΕΛΙΞΗ' : 'ΕΞΕΛΙΞΗ'}</p>
+                    <p className="text-sm font-bold uppercase tracking-tight">{isServedVisible ? 'ΣΕΡΒΙΡΙΣΤΗΚΕ!' : <>{activeOrder.status === 'new' && 'Στάλθηκε στο Bar...'}{activeOrder.status === 'preparing' && 'Ετοιμάζεται...'}{activeOrder.status === 'shipped' && 'Ετοιμάστηκε & Έρχεται!'}</>}</p>
                 </div>
             </div>
           </div>
@@ -313,7 +367,6 @@ export default function CustomerPage() {
           </div>
         </header>
 
-        {/* 🎁 STICKY GIFT BANNER (Persistent until canceled) */}
         {isGiftMode && targetUmbrella && (
             <div className="px-5 sm:px-6 mt-2 mb-4 animate-in fade-in zoom-in duration-300 relative z-30">
                 <div className="bg-purple-600 text-white p-4 rounded-[1.5rem] shadow-[0_10px_30px_rgba(168,85,247,0.4)] flex justify-between items-center border border-purple-400">
@@ -332,31 +385,24 @@ export default function CustomerPage() {
 
       <main className="flex-1 overflow-y-auto overscroll-y-none px-5 sm:px-6 pb-40 w-full max-w-lg mx-auto relative z-10">
         
-        {/* =========================================================================
-            ⚡ REVENUE ENGINE: REFINED CONTROL CENTER ⚡
-            ========================================================================= */}
         {umbrellaNumber && !activeCategory && (
            <div className="space-y-4 mb-8 animate-in fade-in duration-300">
               
               <div className={`p-4 rounded-[2rem] border border-white/10 flex flex-col gap-4 ${glassClass}`}>
                   
-                  {/* TOP ROW: STATUS & SERVICE */}
                   <div className="flex justify-between items-center px-1">
-                      <div className="flex flex-col">
-                          <span className="text-[8px] uppercase tracking-[0.3em] opacity-60 mb-1 font-black">ΛΟΓΑΡΙΑΣΜΟΣ</span>
+                      <button onClick={() => { triggerHaptic(20); setIsBillModalOpen(true); }} className="flex flex-col text-left active:scale-95 transition-transform hover:opacity-80">
+                          <span className="text-[8px] uppercase tracking-[0.3em] opacity-60 mb-1 font-black flex items-center gap-1">ΛΟΓΑΡΙΑΣΜΟΣ <Info size={10} /></span>
                           <span className="text-2xl font-black tracking-tighter" style={{ color: totalOwed > 0 ? textColor : themeColor }}>{totalOwed > 0 ? `${totalOwed.toFixed(2)}€` : '0.00€'}</span>
-                      </div>
+                      </button>
                       <button onClick={() => { triggerHaptic(30); setIsServiceOpen(true); }} className="px-4 py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest flex items-center gap-2 transition-transform active:scale-95 border" style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)', color: textColor }}>
                           <BellRing size={16} style={{ color: themeColor }}/> ΚΛΗΣΗ / ΠΛΗΡΩΜΗ
                       </button>
                   </div>
 
-                  {/* DIVIDER */}
                   <div className="w-full h-px bg-white/10"></div>
 
-                  {/* BOTTOM ROW: REVENUE (THE MONEY MAKERS) */}
                   <div className="flex gap-3">
-                      {/* ALWAYS SHOW IF LAST ORDER EXISTS */}
                       {lastOrder && lastOrder.length > 0 && (
                           <button onClick={() => { triggerHaptic(30); setIsRepeatModalOpen(true); }} className="flex-1 py-4 rounded-[1.2rem] font-black text-[10px] sm:text-xs uppercase flex items-center justify-center gap-2 transition-transform active:scale-95 shadow-[0_0_20px_rgba(0,0,0,0.2)] border border-white/20" style={{ backgroundColor: themeColor, color: buttonTextHex }}>
                               <RotateCcw size={18}/> ΑΛΛΟ ΕΝΑ ΓΥΡΟ
@@ -369,7 +415,6 @@ export default function CustomerPage() {
                   </div>
               </div>
 
-              {/* CATEGORY GRID */}
               {menu.length === 0 && ( <div className="grid grid-cols-2 gap-4 animate-pulse"><div className={`col-span-2 h-40 rounded-[2rem] ${glassClass}`}></div><div className={`h-32 rounded-[2rem] ${glassClass}`}></div><div className={`h-32 rounded-[2rem] ${glassClass}`}></div></div> )}
               
               <div className="grid grid-cols-2 gap-4 pt-2">
@@ -384,7 +429,6 @@ export default function CustomerPage() {
            </div>
         )}
 
-        {/* ACTIVE CATEGORY PRODUCTS */}
         {activeCategory && (
           <div className="animate-in fade-in slide-in-from-right-8 duration-300 pt-2">
             <button onClick={() => { triggerHaptic(20); setActiveCategory(null); }} className="font-black text-[9px] uppercase mb-8 flex items-center gap-1 tracking-[0.2em] opacity-50 hover:opacity-100 transition-opacity" style={{ color: textColor }}><ChevronLeft size={16}/> ΕΠΙΣΤΡΟΦΗ</button>
@@ -405,8 +449,17 @@ export default function CustomerPage() {
                             {!isOut && <span className="text-[7px] text-slate-400 opacity-50 font-black uppercase tracking-widest ml-auto hidden sm:block">HOLD TO FLASH</span>}
                         </div>
                     </div>
-                    <button disabled={isOut || (isGiftMode && !targetUmbrella)} onTouchStart={() => !isOut && handleTouchStart(product)} onTouchEnd={(e) => !isOut && handleTouchEnd(product, e)} onMouseDown={() => !isOut && handleTouchStart(product)} onMouseUp={(e) => !isOut && handleTouchEnd(product, e)} onMouseLeave={() => { if(!isOut && touchTimer.current) { clearTimeout(touchTimer.current); touchTimer.current = null; } }} onContextMenu={(e) => e.preventDefault()} className={`flash-btn w-12 h-12 shrink-0 rounded-xl flex items-center justify-center transition-all border border-white/10 relative z-10 select-none bg-white/5 ${isOut ? 'opacity-40 cursor-not-allowed' : 'active:scale-90 hover:bg-white/10'}`} style={!isOut ? { color: themeColor } : { color: buttonTextHex }}>
-                    {isOut ? <X size={20} className="pointer-events-none" /> : <Plus size={20} className="pointer-events-none drop-shadow-md" />}
+                    <button 
+                      disabled={isOut || (isGiftMode && !targetUmbrella)} 
+                      onPointerDown={(e) => !isOut && handlePointerDown(product, e)} 
+                      onPointerUp={(e) => !isOut && handlePointerUp(product, e)} 
+                      onPointerLeave={handlePointerCancel}
+                      onPointerCancel={handlePointerCancel}
+                      onContextMenu={(e) => e.preventDefault()} 
+                      className={`flash-btn w-12 h-12 shrink-0 rounded-xl flex items-center justify-center transition-all border border-white/10 relative z-10 select-none bg-white/5 ${isOut ? 'opacity-40 cursor-not-allowed' : 'active:scale-90 hover:bg-white/10'}`} 
+                      style={!isOut ? { color: themeColor } : { color: buttonTextHex }}
+                    >
+                      {isOut ? <X size={20} className="pointer-events-none" /> : <Plus size={20} className="pointer-events-none drop-shadow-md" />}
                     </button>
                 </div>
                 );
@@ -416,30 +469,117 @@ export default function CustomerPage() {
         )}
       </main>
 
-      {/* 🎁 THE NEW GIFT MODAL (Appears instantly on click) */}
-      {isGiftMode && !targetUmbrella && (
+      {/* ⚡ THE NEW BILL MODAL ⚡ */}
+      {isBillModalOpen && (
           <div className="fixed inset-0 z-[60] flex items-end justify-center">
-             <div className="absolute inset-0 bg-black/60 backdrop-blur-md" onClick={() => { triggerHaptic(20); setIsGiftMode(false); }}></div>
-             <div className={`w-full max-w-lg p-6 sm:p-8 rounded-t-[3rem] relative z-10 animate-in slide-in-from-bottom-full duration-300 ${glassClass} ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
-                <div className="w-12 h-1.5 bg-slate-500/30 rounded-full mx-auto mb-6"></div>
-                <div className="text-center mb-6">
-                    <div className="w-14 h-14 bg-purple-500/20 text-purple-500 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-purple-500/30"><Gift size={28}/></div>
-                    <h2 className="text-2xl font-black mb-1 playfair">Σε ποιο {term.unit.toLowerCase()};</h2>
-                    <p className={`text-[9px] font-black uppercase tracking-[0.2em] opacity-50`}>ΕΠΙΛΕΞΤΕ ΑΠΟ ΤΗ ΛΙΣΤΑ</p>
-                </div>
-                <div className="grid grid-cols-4 sm:grid-cols-5 gap-3 max-h-[40vh] overflow-y-auto p-1 mb-8 no-scrollbar pr-2">
-                    {availableGiftUmbrellas.map(u => ( 
-                        <button key={u.id} onClick={() => { triggerHaptic(20); setTargetUmbrella(u.number); }} className={`aspect-square rounded-[1.2rem] font-black text-lg transition-transform active:scale-90 flex items-center justify-center shadow-lg border border-white/20`} style={{ backgroundColor: themeColor, color: buttonTextHex }}>
-                            {u.number}
-                        </button> 
-                    ))}
-                </div>
-                <button onClick={() => { triggerHaptic(20); setIsGiftMode(false); }} className="w-full py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-white/5 rounded-[1.2rem] hover:bg-white/10 transition-colors border border-white/5">ΑΚΥΡΩΣΗ</button>
+             <div className="absolute inset-0 bg-black/60 backdrop-blur-md" onClick={() => setIsBillModalOpen(false)}></div>
+             <div className={`w-full max-w-lg p-6 sm:p-8 rounded-t-[3rem] relative z-10 animate-in slide-in-from-bottom-full duration-300 max-h-[85vh] flex flex-col ${glassClass} ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
+                 <div className="w-12 h-1.5 bg-slate-500/30 rounded-full mx-auto mb-6 shrink-0"></div>
+                 <div className="flex justify-between items-center mb-6 shrink-0">
+                     <div className="flex items-center gap-3">
+                         <div className="bg-white/10 p-2.5 rounded-xl"><Receipt size={20}/></div>
+                         <h2 className="text-xl font-black playfair">Ο Λογαριασμός</h2>
+                     </div>
+                     <button onClick={() => setIsBillModalOpen(false)} className="p-2.5 bg-white/10 rounded-xl hover:bg-white/20 transition-colors"><X size={18}/></button>
+                 </div>
+                 <div className="flex-1 overflow-y-auto no-scrollbar space-y-4 pr-1">
+                     {myOrders.length === 0 ? <p className="opacity-50 text-sm font-bold italic text-center py-10">Δεν υπάρχουν παραγγελίες.</p> :
+                         myOrders.map(order => (
+                             <div key={order.id} className="bg-black/20 border border-white/5 p-5 rounded-[1.5rem]">
+                                 <div className="flex justify-between items-center border-b border-white/5 pb-3 mb-4">
+                                     <span className="text-[10px] font-black uppercase tracking-widest opacity-50 flex items-center gap-1.5"><Timer size={12}/> {new Date(order.created_at).toLocaleTimeString('el-GR', {hour: '2-digit', minute:'2-digit'})}</span>
+                                     <span className="text-sm font-black text-white">{order.total_price.toFixed(2)}€</span>
+                                 </div>
+                                 <div className="space-y-3">
+                                     {order.items.map((item, i) => (
+                                         <div key={i} className="flex justify-between text-sm items-start gap-4">
+                                             <span className="font-bold opacity-90 leading-tight"><span className="mr-2 px-1.5 py-0.5 rounded-md text-[10px] font-black" style={{ backgroundColor: `${themeColor}20`, color: themeColor }}>{item.quantity}x</span>{item.uniqueName}</span>
+                                             <span className="opacity-60 text-xs shrink-0 mt-0.5">{(item.price * item.quantity).toFixed(2)}€</span>
+                                         </div>
+                                     ))}
+                                 </div>
+                                 {order.is_gift && (
+                                     <div className="mt-4 bg-purple-500/20 text-purple-400 text-[10px] font-black uppercase tracking-[0.2em] px-3 py-2.5 rounded-xl flex items-center justify-center gap-2 border border-purple-500/30">
+                                         <Gift size={14}/> Εσταλη στο {term.unit} {order.to_umbrella}
+                                     </div>
+                                 )}
+                             </div>
+                         ))
+                     }
+                 </div>
+                 <div className="mt-6 pt-6 border-t border-white/10 flex justify-between items-end shrink-0">
+                     <span className="font-black uppercase tracking-[0.3em] text-[10px] opacity-50">ΓΕΝΙΚΟ ΣΥΝΟΛΟ</span>
+                     <span className="text-3xl font-black" style={{ color: themeColor }}>{totalOwed.toFixed(2)}<span className="text-xl opacity-50">€</span></span>
+                 </div>
              </div>
           </div>
       )}
 
-      {/* PREMIUM MODALS */}
+      {/* 🎁 ⚡ THE NEW MAP-BASED GIFT MODAL (Gamified) ⚡ 🎁 */}
+      {isGiftMode && !targetUmbrella && (
+          <div className="fixed inset-0 z-[60] flex items-end justify-center">
+             <div className="absolute inset-0 bg-black/60 backdrop-blur-md" onClick={() => { triggerHaptic(20); setIsGiftMode(false); }}></div>
+             <div className={`w-full max-w-lg p-6 sm:p-8 rounded-t-[3rem] relative z-10 animate-in slide-in-from-bottom-full duration-300 flex flex-col max-h-[90vh] ${glassClass} ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
+                <div className="w-12 h-1.5 bg-slate-500/30 rounded-full mx-auto mb-6 shrink-0"></div>
+                
+                <div className="text-center mb-4 shrink-0">
+                    <h2 className="text-2xl font-black mb-1 playfair">Σε ποιον κερνάμε;</h2>
+                    <p className={`text-[9px] font-black uppercase tracking-[0.2em] opacity-50`}>ΒΡΕΣ ΤΟ ΤΡΑΠΕΖΙ ΣΤΟΝ ΧΑΡΤΗ</p>
+                </div>
+
+                {/* Zone Selector */}
+                {uniqueGiftZones.length > 1 && (
+                    <div className="flex overflow-x-auto gap-2 mb-4 no-scrollbar pb-2 shrink-0">
+                        {uniqueGiftZones.map(z => (
+                            <button key={z} onClick={() => { triggerHaptic(10); setGiftZone(z); }} className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase whitespace-nowrap transition-all border ${activeGiftZone === z ? 'shadow-lg border-transparent' : 'bg-black/20 text-slate-400 border-white/5'}`} style={activeGiftZone === z ? { backgroundColor: themeColor, color: buttonTextHex } : {}}>
+                                {z}
+                            </button>
+                        ))}
+                    </div>
+                )}
+
+                {/* The Interactive Panning Map */}
+                <div className="flex-1 relative w-full bg-black/40 rounded-[2rem] overflow-auto border border-white/10 shadow-inner no-scrollbar touch-pan-x touch-pan-y" style={{ backgroundImage: 'radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
+                    {(() => {
+                        const currentZoneUmbrellas = umbrellas.filter(u => (u.zone_name || 'Main') === activeGiftZone);
+                        const maxX = currentZoneUmbrellas.length > 0 ? Math.max(...currentZoneUmbrellas.map(u => u.x_pos)) : 0;
+                        const maxY = currentZoneUmbrellas.length > 0 ? Math.max(...currentZoneUmbrellas.map(u => u.y_pos)) : 0;
+                        
+                        const mapWidth = Math.max(maxX + 150, 800);
+                        const mapHeight = Math.max(maxY + 150, 600);
+
+                        return (
+                            <div className="relative p-8" style={{ width: `${mapWidth}px`, height: `${mapHeight}px` }}>
+                                {currentZoneUmbrellas.map(u => {
+                                    const isMe = u.number === umbrellaNumber;
+                                    return (
+                                        <button 
+                                            key={u.id} 
+                                            disabled={isMe}
+                                            onClick={() => { triggerHaptic(30); setTargetUmbrella(u.number); showToast("Κέρασμα", `Επιλέξτε προϊόντα για το ${u.number}`, "gift"); }} 
+                                            className={`absolute w-14 h-14 rounded-[1rem] flex flex-col items-center justify-center transition-transform shadow-lg border ${isMe ? 'bg-slate-800/80 border-white/5 text-slate-500 opacity-60 cursor-not-allowed' : 'border-white/20 active:scale-90 hover:scale-105'}`} 
+                                            style={{ 
+                                                left: `${u.x_pos}px`, 
+                                                top: `${u.y_pos}px`,
+                                                backgroundColor: isMe ? undefined : themeColor, 
+                                                color: isMe ? undefined : buttonTextHex 
+                                            }}
+                                        >
+                                            <span className="text-[8px] opacity-70 mb-0.5">{isMe ? 'ΕΣΥ' : <MapPin size={10}/>}</span>
+                                            <span className="font-black text-sm">{u.number}</span>
+                                        </button> 
+                                    )
+                                })}
+                            </div>
+                        );
+                    })()}
+                </div>
+
+                <button onClick={() => { triggerHaptic(20); setIsGiftMode(false); }} className="w-full py-4 mt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-white/5 rounded-[1.2rem] hover:bg-white/10 transition-colors border border-white/5 shrink-0">ΑΚΥΡΩΣΗ</button>
+             </div>
+          </div>
+      )}
+
       {isServiceOpen && (
         <div className="fixed inset-0 z-[60] flex items-end justify-center"><div className="absolute inset-0 bg-black/60 backdrop-blur-md" onClick={() => { triggerHaptic(20); setIsServiceOpen(false); }}></div><div className={`w-full max-w-lg p-8 rounded-t-[3rem] relative z-10 animate-in slide-in-from-bottom-full duration-500 ${glassClass} ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}><div className="w-12 h-1.5 bg-slate-500/30 rounded-full mx-auto mb-8"></div><h2 className="text-2xl font-black mb-2 tracking-wide playfair">Εξόφληση Λογαριασμού</h2><p className={`text-[8px] font-black uppercase tracking-[0.3em] mb-8 ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>ΠΩΣ ΕΠΙΘΥΜΕΙΤΕ ΝΑ ΠΛΗΡΩΣΕΤΕ;</p><p className="text-6xl font-black text-center mb-10 tracking-tighter" style={{ color: themeColor }}>{totalOwed.toFixed(2)}<span className="text-3xl opacity-50">€</span></p><div className="grid grid-cols-2 gap-4 mb-8"><button onClick={() => callWaiter('ΚΑΡΤΑ (POS)')} className={`p-5 rounded-[1.5rem] flex flex-col items-center justify-center gap-3 transition-all active:scale-95 ${glassClass}`}><CreditCard size={28} style={{ color: themeColor }}/> <span className="font-black text-[9px] uppercase tracking-[0.2em]">ΚΑΡΤΑ</span></button><button onClick={() => callWaiter('ΜΕΤΡΗΤΑ')} className={`p-5 rounded-[1.5rem] flex flex-col items-center justify-center gap-3 transition-all active:scale-95 ${glassClass}`}><Banknote size={28} className="text-emerald-400"/> <span className="font-black text-[9px] uppercase tracking-[0.2em]">ΜΕΤΡΗΤΑ</span></button><button onClick={() => callWaiter('APPLE PAY / GOOGLE PAY')} className={`p-5 rounded-[1.5rem] flex flex-col items-center justify-center gap-3 transition-all active:scale-95 ${glassClass}`}><Smartphone size={28}/> <span className="font-black text-[9px] uppercase tracking-[0.2em]">APPLE PAY</span></button><button onClick={() => callWaiter('ΣΠΑΣΤΟ (Min 4€ Κάρτα)')} className={`p-5 rounded-[1.5rem] flex flex-col items-center justify-center gap-2 transition-all active:scale-95 ${glassClass}`}><SplitSquareHorizontal size={24} className="text-amber-400"/><div className="text-center"><span className="font-black text-[9px] uppercase tracking-[0.2em] block">ΣΠΑΣΤΟ</span><span className="text-[7px] font-bold opacity-50 block leading-tight mt-1 uppercase">(ΜΙΣΑ ΚΑΡΤΑ - ΜΙΣΑ ΜΕΤΡΗΤΑ)</span></div></button><button onClick={() => callWaiter('ΚΛΗΣΗ ΣΕΡΒΙΤΟΡΟΥ')} className={`col-span-2 p-4 rounded-[1.5rem] flex flex-col items-center justify-center gap-2 transition-all active:scale-95 bg-white/5 border border-white/10 hover:bg-white/10`}><div className="text-center"><span className="font-black text-[9px] uppercase tracking-[0.2em] block">ΑΠΛΗ ΚΛΗΣΗ ΣΕΡΒΙΤΟΡΟΥ</span></div></button></div></div></div>
       )}
