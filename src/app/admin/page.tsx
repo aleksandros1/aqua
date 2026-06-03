@@ -61,7 +61,7 @@ export default function AdminPage() {
   const [activeZone, setActiveZone] = useState<string>('Main');
   const [bulkPrefix, setBulkPrefix] = useState('');
   const [bulkStart, setBulkStart] = useState('1');
-  // ⚡ FIX: Η προεπιλογή πλέον είναι 1 για να μην δημιουργεί μαζικά κατά λάθος ⚡
+  // ⚡ Εδώ η αλλαγή: ξεκινάει από 1 για να δημιουργεί μόνο ένα ⚡
   const [bulkEnd, setBulkEnd] = useState('1');
   const [selectedAssetType, setSelectedAssetType] = useState('Τραπέζι');
   const [isQRModalOpen, setIsQRModalOpen] = useState(false);
@@ -101,32 +101,16 @@ export default function AdminPage() {
   };
   const term = getTerm(store?.store_type);
 
-  const prevOrderCount = useRef(0);
-  const prevReqCount = useRef(0);
-  
-  useEffect(() => {
-      if (orders.length > prevOrderCount.current || requests.length > prevReqCount.current) {
-          const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-          audio.volume = 0.4;
-          audio.play().catch(() => {});
-      }
-      prevOrderCount.current = orders.length;
-      prevReqCount.current = requests.length;
-  }, [orders.length, requests.length]);
-
-  useEffect(() => {
-      if (!store) return;
-      const interval = setInterval(() => {
-          const now = new Date().getTime();
-          orders.forEach(o => {
-              if (o.status === 'shipped' && o.accepted_at) {
-                  const elapsed = now - new Date(o.accepted_at).getTime();
-                  if (elapsed > 300000) archiveOrder(o);
-              }
-          });
-      }, 60000); 
-      return () => clearInterval(interval);
-  }, [orders, store]);
+  // ⚡ ΛΟΓΙΚΗ ΔΙΑΓΡΑΦΗΣ ΖΩΝΗΣ ⚡
+  const deleteZone = async (zoneName: string) => {
+    if (zoneName === 'Main') return alert('Η ζώνη Main δεν διαγράφεται.');
+    if (confirm(`Διαγραφή της ζώνης "${zoneName}" και όλων των αντικειμένων της;`)) {
+        if (!store) return;
+        await supabase.from('umbrellas').delete().eq('store_id', store.id).eq('zone_name', zoneName);
+        fetchUmbrellas(store.id);
+        setActiveZone('Main');
+    }
+  };
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => { setSession(session); if (session) checkUserStore(session.user.id); else setLoadingAuth(false); });
@@ -214,27 +198,12 @@ export default function AdminPage() {
       
       const { error } = await supabase.from('umbrellas').insert(toInsert);
       if (error) alert("Σφάλμα δημιουργίας. Μήπως υπάρχουν ήδη αυτά τα νούμερα;");
-      else { setBulkPrefix(''); setBulkStart('1'); setBulkEnd('1'); fetchUmbrellas(store.id); } // Επαναφορά στο 1
+      else { setBulkPrefix(''); setBulkStart('1'); setBulkEnd('1'); fetchUmbrellas(store.id); }
   };
 
   const createNewZone = () => {
       const zone = prompt("Ονομασία νέας ζώνης (π.χ. Παραλία, Εστιατόριο, Ταράτσα):");
       if (zone && zone.trim() !== '') setActiveZone(zone.trim());
-  };
-
-  // ⚡ FIX: Νέα λειτουργία διαγραφής Ζώνης ⚡
-  const deleteZone = async (zoneToDelete: string) => {
-      if (zoneToDelete === 'Main') return alert("Η βασική ζώνη (Main) δεν μπορεί να διαγραφεί.");
-      if (confirm(`ΠΡΟΣΟΧΗ: Είστε σίγουροι ότι θέλετε να διαγράψετε τη ζώνη "${zoneToDelete}" και ΟΛΑ τα τραπέζια που περιέχει;`)) {
-          if (!store) return;
-          const { error } = await supabase.from('umbrellas').delete().eq('store_id', store.id).eq('zone_name', zoneToDelete);
-          if (!error) {
-              fetchUmbrellas(store.id);
-              if (activeZone === zoneToDelete) setActiveZone('Main');
-          } else {
-              alert("Σφάλμα κατά τη διαγραφή της ζώνης.");
-          }
-      }
   };
 
   const handleMouseUp = async () => { if (draggingId === null) return; const moved = umbrellas.find(u => u.id === draggingId); if (moved) await supabase.from('umbrellas').update({ x_pos: moved.x_pos, y_pos: moved.y_pos }).eq('id', draggingId); setDraggingId(null); };
@@ -312,9 +281,6 @@ export default function AdminPage() {
   const dayCounts = days.reduce((acc: Record<string, number>, d) => { acc[d] = (acc[d] || 0) + 1; return acc; }, {});
   const bestDayIndex = Object.keys(dayCounts).length > 0 ? Object.keys(dayCounts).reduce((a, b) => dayCounts[a] > dayCounts[b] ? a : b) : null;
   const bestDay = bestDayIndex !== null ? dayNames[parseInt(bestDayIndex)] : '-';
-
-  const toggleProductAvailability = async (id: number, currentStatus: boolean) => { const newStatus = !currentStatus; setMenu(prev => prev.map(item => item.id === id ? { ...item, is_available: newStatus } : item)); await supabase.from('menu').update({ is_available: newStatus }).eq('id', id); };
-  const toggleCategoryAvailability = async (category: string, currentStatus: boolean) => { const newStatus = !currentStatus; setMenu(prev => prev.map(item => item.category === category ? { ...item, is_available: newStatus } : item)); if (!store) return; await supabase.from('menu').update({ is_available: newStatus }).eq('category', category).eq('store_id', store.id); };
 
   const uniqueZones = Array.from(new Set(umbrellas.map(u => u.zone_name || 'Main')));
   if (activeZone && !uniqueZones.includes(activeZone)) uniqueZones.push(activeZone);
@@ -485,15 +451,12 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* ⚡ THE NEW ZONE & MAP MANAGER ⚡ */}
+        {/* TAB: ΖΩΝΕΣ & ΧΩΡΟΤΑΞΙΑ */}
         {adminTab === 'map' && (
           <div className="flex flex-col lg:flex-row gap-6 h-[80vh] animate-in fade-in slide-in-from-bottom-4 pb-10">
-            
-            {/* LEFT SIDEBAR: ZONES */}
             <div className="w-full lg:w-80 shrink-0 flex flex-col gap-4">
                 <div className="bg-white/5 backdrop-blur-xl p-6 rounded-[2rem] border border-white/10 shadow-xl flex-1 flex flex-col">
                     <h3 className="font-black text-white uppercase tracking-widest mb-6 flex items-center gap-2"><Layers size={18} className="text-purple-400"/> ΖΩΝΕΣ ΚΑΤΑΣΤΗΜΑΤΟΣ</h3>
-                    
                     <div className="space-y-2 flex-1 overflow-y-auto pr-2 no-scrollbar">
                         {uniqueZones.map(zone => (
                             <div key={zone} className={`w-full rounded-2xl flex items-center transition-all border ${activeZone === zone ? 'bg-purple-600 border-purple-400 text-white shadow-lg' : 'bg-black/40 border-white/5 text-slate-400 hover:border-white/20'}`}>
@@ -509,15 +472,10 @@ export default function AdminPage() {
                             </div>
                         ))}
                     </div>
-                    
                     <button onClick={createNewZone} className="mt-4 w-full py-4 rounded-xl border border-dashed border-white/20 text-slate-400 hover:text-white hover:border-white/50 transition-all font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2"><Plus size={14}/> ΝΕΑ ΖΩΝΗ</button>
                 </div>
             </div>
-
-            {/* RIGHT MAIN: ZONE MANAGEMENT & MAP */}
             <div className="flex-1 flex flex-col gap-4 min-w-0">
-                
-                {/* TOOLBAR FOR BULK CREATION */}
                 <div className="bg-white/5 backdrop-blur-xl p-6 rounded-[2rem] border border-white/10 shadow-xl shrink-0 flex flex-col xl:flex-row xl:items-center justify-between gap-4 z-10 relative">
                     <div className="flex flex-wrap items-center gap-3">
                         <select value={selectedAssetType} onChange={(e) => setSelectedAssetType(e.target.value)} className="bg-black/40 border border-white/10 p-4 rounded-xl text-white font-black text-xs uppercase tracking-widest outline-none focus:border-purple-500">
@@ -534,11 +492,8 @@ export default function AdminPage() {
                     </div>
                     <button onClick={() => setIsQRModalOpen(true)} className="bg-white text-slate-900 px-6 py-4 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] flex items-center justify-center gap-2 shadow-lg transition-all hover:bg-slate-200"><QrCode size={16}/> ΕΚΤΥΠΩΣΗ ΖΩΝΗΣ</button>
                 </div>
-
-                {/* THE VISUAL MAP FOR ACTIVE ZONE */}
                 <div ref={mapRef} onMouseMove={e => { if (draggingId === null || !mapRef.current) return; const rect = mapRef.current.getBoundingClientRect(); setUmbrellas(prev => prev.map(u => u.id === draggingId ? { ...u, x_pos: Math.round(e.clientX - rect.left - 40), y_pos: Math.round(e.clientY - rect.top - 40) } : u)); }} onMouseUp={handleMouseUp} onTouchMove={e => { if (draggingId === null || !mapRef.current) return; const rect = mapRef.current.getBoundingClientRect(); const touch = e.touches[0]; setUmbrellas(prev => prev.map(u => u.id === draggingId ? { ...u, x_pos: Math.round(touch.clientX - rect.left - 40), y_pos: Math.round(touch.clientY - rect.top - 40) } : u)); }} onTouchEnd={handleMouseUp} className="flex-1 w-full relative bg-black/40 rounded-[2.5rem] border border-white/5 overflow-hidden shadow-inner cursor-crosshair backdrop-blur-xl" style={{ backgroundImage: 'radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px)', backgroundSize: '30px 30px' }}>
                     <div className="absolute top-6 left-6 text-white/20 font-black text-6xl uppercase tracking-tighter mix-blend-overlay pointer-events-none select-none">{activeZone}</div>
-                    
                     {umbrellas.filter(u => (u.zone_name || 'Main') === activeZone).map(u => {
                         const icon = assetTypes.find(t => t.id === u.asset_type)?.icon || <MapPin size={14}/>;
                         const isDragging = draggingId === u.id;
@@ -554,105 +509,7 @@ export default function AdminPage() {
             </div>
           </div>
         )}
-
-        {/* TAB: ΑΝΑΦΟΡΕΣ */}
-        {adminTab === 'stats' && (
-          <div className="space-y-6 animate-in fade-in duration-500 pb-20">
-             <div className="flex bg-white/5 p-1.5 rounded-[1.2rem] border border-white/5 w-fit"><button onClick={() => setStatsView('daily')} className={`px-6 py-2.5 rounded-xl text-xs font-black transition-all ${statsView === 'daily' ? 'bg-cyan-500 text-slate-900 shadow-lg' : 'text-slate-400 hover:text-white'}`}>ΗΜΕΡΗΣΙΑ ΕΣΟΔΑ</button><button onClick={() => setStatsView('insights')} className={`px-6 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${statsView === 'insights' ? 'bg-cyan-500 text-slate-900 shadow-lg' : 'text-slate-400 hover:text-white'}`}><Crosshair size={14}/> ΑΝΑΛΥΣΗ ΠΡΟΙΟΝΤΩΝ</button></div>
-             {statsView === 'daily' ? (
-                 <>
-                     <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white/5 backdrop-blur-xl border border-white/10 p-5 rounded-[2rem] shadow-xl relative overflow-hidden"><div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full animate-[shimmer_2s_infinite]"></div><div className="flex items-center gap-3 w-full sm:w-auto justify-center sm:justify-start"><div className="bg-cyan-500/20 p-2.5 rounded-xl"><CalendarDays className="text-cyan-400"/></div><div><h2 className="text-sm font-black text-white tracking-widest uppercase">Χρονομηχανη Εσοδων</h2><p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Swipe για αλλαγη ημερας</p></div></div><div className="flex items-center gap-2 w-full sm:w-auto bg-black/40 p-1.5 rounded-2xl border border-white/10 z-10"><button onClick={() => changeDate(-1)} className="p-3 bg-white/5 hover:bg-white/10 rounded-xl transition-colors text-white"><ChevronLeft size={20}/></button><input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-transparent text-white font-black text-sm px-4 outline-none text-center tracking-widest [color-scheme:dark]" /><button onClick={() => changeDate(1)} className="p-3 bg-white/5 hover:bg-white/10 rounded-xl transition-colors text-white"><ChevronRight size={20}/></button></div></div>
-                     
-                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 animate-in slide-in-from-bottom-4"><div className="bg-gradient-to-br from-emerald-500/10 to-transparent border border-emerald-500/20 p-6 rounded-[2rem] shadow-lg overflow-hidden relative"><TrendingUp className="absolute -right-4 -top-4 text-emerald-500/20 w-32 h-32"/><p className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-500 mb-2 relative z-10">ΕΣΟΔΑ ΗΜΕΡΑΣ</p><p className="text-4xl font-black text-white tracking-tighter relative z-10"><AnimatedCounter value={dayRevenue} />€</p></div><div className="bg-white/5 backdrop-blur-xl border border-white/10 p-6 rounded-[2rem] shadow-lg"><p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-2 flex items-center gap-2"><Activity size={14}/> ΟΓΚΟΣ ΠΩΛΗΣΕΩΝ</p><p className="text-4xl font-black text-white tracking-tighter">{itemsSold} <span className="text-base text-slate-500 font-bold tracking-widest uppercase">Τεμαχια</span></p></div><div className="bg-white/5 backdrop-blur-xl border border-white/10 p-6 rounded-[2rem] shadow-lg"><p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-2 flex items-center gap-2"><DollarSign size={14}/> ΜΕΣΗ ΑΞΙΑ ΠΡΟΙΟΝΤΟΣ</p><p className="text-4xl font-black text-cyan-400 tracking-tighter">{avgTicket.toFixed(2)}€</p></div></div>
-                     
-                     <div className="bg-white/5 backdrop-blur-xl border border-white/10 p-8 rounded-[2.5rem] shadow-2xl animate-in slide-in-from-bottom-6">
-                        <div className="flex justify-between items-end mb-8">
-                            <div>
-                                <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-1 flex items-center gap-2"><BarChart3 size={14}/> ΡΟΗ ΕΣΟΔΩΝ ΑΝΑ ΩΡΑ</h3>
-                                <p className="text-xl font-black text-white">Πότε πουλάμε περισσότερο;</p>
-                            </div>
-                        </div>
-                        
-                        <div className="h-48 flex items-end gap-2 relative mt-4">
-                            <div className="absolute inset-0 flex flex-col justify-between pointer-events-none pb-6 opacity-20">
-                                <div className="border-t border-dashed border-white w-full"></div>
-                                <div className="border-t border-dashed border-white w-full"></div>
-                                <div className="border-t border-dashed border-white w-full"></div>
-                            </div>
-                            <div className="absolute left-0 -top-4 text-[9px] font-black text-slate-500">{maxHourlyRev.toFixed(0)}€</div>
-                            
-                            {Array.from({ length: chartEndHour - chartStartHour + 1 }).map((_, i) => {
-                                const currentHour = chartStartHour + i;
-                                const rev = hourlyRevenue[currentHour] || 0;
-                                const heightPercentage = (rev / maxHourlyRev) * 100;
-                                const isPeak = rev === maxHourlyRev && maxHourlyRev > 1;
-                                
-                                return (
-                                    <div key={currentHour} className="flex-1 flex flex-col justify-end items-center group relative h-full pb-6 z-10">
-                                        <div className="absolute -top-10 bg-black/80 border border-white/10 text-white text-[10px] font-black px-3 py-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap shadow-xl">
-                                            {currentHour}:00 - {rev.toFixed(2)}€
-                                        </div>
-                                        <div 
-                                            className={`w-full max-w-[40px] rounded-t-lg transition-all duration-700 ease-out group-hover:brightness-125 ${isPeak ? 'bg-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.5)]' : 'bg-white/20'}`} 
-                                            style={{ height: `${heightPercentage}%`, minHeight: rev > 0 ? '4px' : '0px' }}
-                                        ></div>
-                                        <span className="text-[9px] font-black text-slate-500 mt-2 absolute bottom-0">{currentHour}:00</span>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                     </div>
-
-                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6"><div className="bg-white/5 backdrop-blur-xl border border-white/10 p-8 rounded-[2.5rem] shadow-2xl"><p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-6">TOP SELLERS</p><div className="space-y-5">{bestSellers.map((item, idx) => (<div key={idx} className="flex flex-col"><div className="flex justify-between items-end mb-1.5"><p className="text-white font-black truncate">{item.name} <span className="text-[9px] font-bold text-slate-500 ml-2">x{item.qty}</span></p><span className="text-sm font-black text-cyan-400">{item.revenue.toFixed(2)}€</span></div><div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden"><div className="h-full bg-cyan-500" style={{ width: `${(item.revenue / (bestSellers[0]?.revenue || 1)) * 100}%` }}></div></div></div>))}{bestSellers.length === 0 && <p className="text-slate-500 text-sm font-bold italic">Δεν υπάρχουν πωλήσεις.</p>}</div></div><div className="bg-white/5 backdrop-blur-xl border border-white/10 p-8 rounded-[2.5rem] shadow-2xl"><p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-6 flex items-center gap-2"><PieChart size={14}/> ΑΝΑΛΥΣΗ ΚΑΤΗΓΟΡΙΩΝ</p><div className="space-y-5">{categoryStats.map(([cat, rev], idx) => { const percentage = dayRevenue > 0 ? (rev / dayRevenue) * 100 : 0; return (<div key={idx} className="flex flex-col"><div className="flex justify-between items-end mb-1.5"><p className="text-white font-black truncate uppercase tracking-widest text-xs">{cat}</p><div className="text-right"><span className="text-xs font-black text-emerald-400 mr-2">{rev.toFixed(2)}€</span><span className="text-[10px] font-bold text-slate-500">{percentage.toFixed(1)}%</span></div></div><div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden"><div className="h-full bg-purple-500" style={{ width: `${percentage}%` }}></div></div></div>); })}{categoryStats.length === 0 && <p className="text-slate-500 text-sm font-bold italic">Κανένα δεδομένο.</p>}</div></div></div>
-                 </>
-             ) : (
-                 <div className="animate-in slide-in-from-right-8 duration-500 space-y-6"><div className="bg-white/5 backdrop-blur-xl border border-white/10 p-6 rounded-[2rem] shadow-xl"><p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-4">ΕΠΙΛΟΓΗ ΣΤΟΧΟΥ (ΠΡΟΙΟΝ)</p><select className="w-full bg-black/40 border border-white/10 p-4 rounded-xl text-white font-black text-sm outline-none focus:border-cyan-500" value={selectedInsightProduct} onChange={(e) => setSelectedInsightProduct(e.target.value)}>{menu.map(m => <option key={m.id} value={m.name}>{m.name} ({m.category})</option>)}</select></div><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div className="bg-gradient-to-br from-purple-500/10 to-transparent border border-purple-500/20 p-8 rounded-[2rem] shadow-xl"><p className="text-[10px] font-black uppercase tracking-[0.3em] text-purple-400 mb-2">ΣΥΝΟΛΙΚΟΣ ΤΖΙΡΟΣ ΠΡΟΙΟΝΤΟΣ</p><p className="text-5xl font-black text-white tracking-tighter mb-6">{productTotalRev.toFixed(2)}€</p><div className="flex items-center gap-4 text-sm font-bold text-slate-300"><div className="bg-black/30 px-4 py-2 rounded-lg border border-white/5">Τεμάχια: <span className="text-purple-400">{productTotalQty}</span></div></div></div><div className="bg-white/5 backdrop-blur-xl border border-white/10 p-8 rounded-[2rem] shadow-xl flex flex-col justify-center space-y-6"><div><p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-1 flex items-center gap-2"><Clock size={14} className="text-amber-400"/> ΩΡΑ ΑΙΧΜΗΣ (PEAK HOUR)</p><p className="text-2xl font-black text-white tracking-widest">{peakHour}</p></div><div className="w-full h-px bg-white/10"></div><div><p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-1 flex items-center gap-2"><CalendarDays size={14} className="text-cyan-400"/> ΚΑΛΥΤΕΡΗ ΜΕΡΑ</p><p className="text-2xl font-black text-white uppercase tracking-widest">{bestDay}</p></div></div></div></div>
-             )}
-          </div>
-        )}
-
-        {/* TAB: ΟΠΛΟΣΤΑΣΙΟ */}
-        {adminTab === 'menu' && (
-           <div className="space-y-6 sm:space-y-8 pb-10">
-              <div className="bg-white/5 backdrop-blur-xl p-6 sm:p-8 rounded-[2rem] border border-white/10 shadow-2xl"><h3 className="text-lg font-black mb-6 text-white flex items-center gap-3 tracking-wide"><Plus className="text-cyan-500" size={24} /> ΠΡΟΣΘΗΚΗ ΠΡΟΙΟΝΤΟΣ</h3><div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-5"><input placeholder="Ονομασία" className="col-span-2 bg-black/40 p-4 rounded-xl outline-none border border-white/5 text-white font-bold text-sm" value={newProduct.name} onChange={(e) => setNewProduct({...newProduct, name: e.target.value})} /><input list="category-options" placeholder="Κατηγορία" className="col-span-2 sm:col-span-1 bg-black/40 p-4 rounded-xl border border-white/5 text-white font-bold text-sm" value={newProduct.category} onChange={(e) => setNewProduct({...newProduct, category: e.target.value})} /><datalist id="category-options">{uniqueCategories.map(cat => <option key={cat} value={cat} />)}</datalist><input placeholder="Τιμή" type="number" step="0.1" className="col-span-2 sm:col-span-1 bg-black/40 p-4 rounded-xl border border-white/5 text-white font-black text-sm" value={newProduct.price} onChange={(e) => setNewProduct({...newProduct, price: e.target.value})} /><input placeholder="P (g)" type="number" className="bg-black/40 p-4 rounded-xl border border-white/5 text-white text-sm" value={newProduct.protein} onChange={(e) => setNewProduct({...newProduct, protein: e.target.value})} /><input placeholder="Cal" type="number" className="bg-black/40 p-4 rounded-xl border border-white/5 text-white text-sm" value={newProduct.calories} onChange={(e) => setNewProduct({...newProduct, calories: e.target.value})} /></div><div className="col-span-full bg-black/20 p-5 rounded-2xl border border-white/5 mb-6"><p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">ΠΡΟΑΙΡΕΤΙΚΕΣ ΕΠΙΛΟΓΕΣ / MODS</p><div className="flex gap-2 mb-4 flex-wrap">{newProductOptions.map(opt => (<span key={opt} className="bg-white/10 text-white px-3 py-1.5 rounded-lg font-bold text-[10px] flex items-center gap-2 border border-white/5">{opt} <button onClick={() => { setNewProductOptions(newProductOptions.filter(o => o !== opt)); }} className="hover:text-red-400 transition-colors"><X size={14}/></button></span>))}</div><div className="flex gap-3"><input placeholder="π.χ. Γλυκός, Σκέτος" className="flex-1 bg-black/40 p-4 rounded-xl outline-none border border-white/5 text-white font-bold text-sm" value={currentOption} onChange={(e) => setCurrentOption(e.target.value)} onKeyDown={(e) => { if(e.key === 'Enter') { const opt = currentOption.trim(); if(opt && !newProductOptions.includes(opt)) { setNewProductOptions([...newProductOptions, opt]); setCurrentOption(''); } } }} /><button onClick={() => { const opt = currentOption.trim(); if(opt && !newProductOptions.includes(opt)) { setNewProductOptions([...newProductOptions, opt]); setCurrentOption(''); } }} className="bg-white/10 hover:bg-cyan-500 hover:text-slate-950 text-white px-6 rounded-xl transition-all font-black flex items-center justify-center"><Plus size={20}/></button></div></div><button onClick={handleAddProduct} className="w-full bg-cyan-500 text-slate-950 p-5 rounded-xl font-black uppercase transition-all hover:bg-cyan-400 text-sm tracking-[0.2em] shadow-[0_0_20px_rgba(6,182,212,0.3)]">ΠΡΟΣΘΗΚΗ ΣΤΟ ΜΕΝΟΥ</button></div>
-              <div className="space-y-8">{uniqueCategories.map(category => { const categoryItems = menu.filter(m => m.category === category); const isCategoryOn = categoryItems.some(i => i.is_available !== false); return (<div key={category} className="space-y-4 animate-in fade-in duration-500"><div className="flex justify-between items-center bg-white/5 border border-white/10 p-5 rounded-[1.5rem] backdrop-blur-md shadow-lg"><h4 className="font-black text-white uppercase tracking-widest text-lg flex items-center gap-2"><div className={`w-3 h-3 rounded-full ${isCategoryOn ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]' : 'bg-slate-600'}`}></div>{category}</h4><div className="flex items-center gap-3"><span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest hidden sm:block">{isCategoryOn ? 'ΕΝΕΡΓΗ' : 'ΕΞΑΝΤΛΗΘΗΚΕ'}</span><button onClick={() => toggleCategoryAvailability(category, isCategoryOn)} className={`w-14 h-7 rounded-full transition-all relative shadow-inner ${isCategoryOn ? 'bg-emerald-500' : 'bg-slate-700'}`}><div className={`w-5 h-5 bg-white rounded-full absolute top-1 transition-all shadow-md ${isCategoryOn ? 'left-8' : 'left-1'}`}></div></button></div></div><div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-2 sm:pl-4 border-l border-white/5">{categoryItems.map(p => (<div key={p.id} className={`p-4 sm:p-5 rounded-[1.5rem] flex justify-between items-center transition-all duration-300 ${p.is_available !== false ? 'bg-white/5 border-white/10 backdrop-blur-md hover:border-white/20' : 'bg-black/40 border border-transparent opacity-50 grayscale hover:grayscale-0'}`}><div className="min-w-0 pr-2"><p className={`font-bold text-sm sm:text-base truncate transition-colors ${p.is_available !== false ? 'text-white' : 'text-slate-400 line-through decoration-red-500/50'}`}>{p.name}</p><div className="flex gap-2 mt-2">{p.options && <span className="text-[9px] font-black uppercase tracking-[0.1em] px-2.5 py-1 bg-white/5 rounded-md text-slate-400 border border-white/10 truncate max-w-[120px]">MODS: {p.options}</span>}</div></div><div className="flex items-center gap-2 sm:gap-3 shrink-0"><div className="flex flex-col items-center gap-1 mr-1"><button onClick={() => toggleProductAvailability(p.id, p.is_available !== false)} className={`w-10 h-5 rounded-full transition-all relative ${p.is_available !== false ? 'bg-emerald-500' : 'bg-slate-600'}`}><div className={`w-3.5 h-3.5 bg-white rounded-full absolute top-[3px] transition-all ${p.is_available !== false ? 'left-[22px]' : 'left-[3px]'}`}></div></button></div><div className="w-px h-8 bg-white/10 mx-0.5 sm:mx-1"></div><input type="number" defaultValue={p.price} onBlur={(e) => supabase.from('menu').update({ price: parseFloat(e.target.value) }).eq('id', p.id)} className="w-14 sm:w-16 bg-black/40 p-2 rounded-xl text-center text-white font-black border border-white/10 outline-none text-xs sm:text-sm focus:border-cyan-500 transition-colors" /><button onClick={() => {if(confirm("Διαγραφή;")) supabase.from('menu').delete().eq('id', p.id).then(()=>fetchMenu(store.id));}} className="p-2 sm:p-2.5 bg-red-500/10 border border-red-500/20 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all"><Trash2 size={16}/></button></div></div>))}</div></div>); })}</div>
-           </div>
-        )}
-
-        {/* TAB: ΡΥΘΜΙΣΕΙΣ */}
-        {adminTab === 'settings' && (
-          <div className="space-y-8 pb-10"><div className="bg-white/5 backdrop-blur-xl p-6 sm:p-8 rounded-[2rem] border border-white/10 shadow-2xl max-w-3xl"><h3 className="text-xl font-black mb-2 text-white playfair tracking-wide">Brand Identity</h3><div className="space-y-6 my-8"><div className="bg-black/30 p-5 rounded-xl border border-white/5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6"><div className="w-full min-w-0"><label className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 mb-2 block">ΔΗΜΟΣΙΟ LINK ΠΕΛΑΤΩΝ</label><p className="font-mono text-cyan-400 text-xs sm:text-sm font-bold bg-cyan-500/10 p-3 rounded-lg border border-cyan-500/20 truncate select-all">{typeof window !== 'undefined' ? window.location.origin : ''}/?store={store.slug}</p></div><button onClick={handleCopyLink} className="w-full sm:w-auto bg-white/10 p-4 rounded-xl hover:bg-white/20 transition-colors text-white flex items-center justify-center gap-2 font-bold text-xs shrink-0 tracking-widest uppercase"><Copy size={16}/> ΑΝΤΙΓΡΑΦΗ</button></div><div><label className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 mb-3 block">ΟΝΟΜΑΣΙΑ ΜΟΝΑΔΑΣ</label><input className="w-full bg-black/40 border border-white/5 p-4 rounded-xl text-white font-bold outline-none focus:border-cyan-500 transition-colors" value={settingsName} onChange={e => setSettingsName(e.target.value)} /></div><div className="grid grid-cols-1 sm:grid-cols-2 gap-6"><div><label className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 mb-3 block">ΧΡΩΜΑ ΚΟΥΜΠΙΩΝ (ACCENT)</label><div className="flex gap-4 items-center bg-black/40 border border-white/5 p-2 rounded-xl"><input type="color" className="w-14 h-14 rounded-lg cursor-pointer bg-transparent border-0 outline-none" value={settingsColor} onChange={e => setSettingsColor(e.target.value)} /><span className="font-mono text-slate-300 text-sm font-bold">{settingsColor.toUpperCase()}</span></div></div><div><label className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 mb-3 block">ΧΡΩΜΑ ΦΟΝΤΟΥ (PREMIUM DARK)</label><div className="flex gap-4 items-center bg-black/40 border border-white/5 p-2 rounded-xl"><input type="color" className="w-14 h-14 rounded-lg cursor-pointer bg-transparent border-0 outline-none" value={settingsBgColor} onChange={e => setSettingsBgColor(e.target.value)} /><span className="font-mono text-slate-300 text-sm font-bold">{settingsBgColor.toUpperCase()}</span></div></div></div>
-          
-          <div className="mt-8 border-t border-white/10 pt-6">
-              <div className="flex justify-between items-center mb-4">
-                  <label className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 block">ΑΠΟΘΗΚΕΥΜΕΝΑ THEMES</label>
-                  <button onClick={handleSaveTheme} className="text-[9px] bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-lg font-black uppercase tracking-widest transition-colors flex items-center gap-1 active:scale-95"><Plus size={12}/> ΑΠΟΘΗΚΕΥΣΗ ΤΡΕΧΟΝΤΟΣ</button>
-              </div>
-              {savedThemes.length === 0 ? (
-                  <p className="text-xs text-slate-500 font-bold italic">Δεν έχετε αποθηκεύσει κάποιο χρωματικό συνδυασμό ακόμα.</p>
-              ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                      {savedThemes.map((t, idx) => (
-                          <div key={idx} className="bg-black/40 border border-white/5 p-4 rounded-xl flex flex-col items-center gap-3 relative group cursor-pointer hover:border-white/20 transition-all hover:bg-white/5" onClick={() => applyTheme(t.primary, t.bg)}>
-                              <button onClick={(e) => { e.stopPropagation(); handleDeleteTheme(idx); }} className="absolute -top-2 -right-2 bg-red-500/80 hover:bg-red-500 text-white w-6 h-6 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all active:scale-90 shadow-lg"><X size={12}/></button>
-                              <div className="w-12 h-12 rounded-full flex overflow-hidden border border-white/20 shadow-lg">
-                                  <div className="w-1/2 h-full" style={{ backgroundColor: t.primary }}></div>
-                                  <div className="w-1/2 h-full" style={{ backgroundColor: t.bg }}></div>
-                              </div>
-                              <span className="text-[10px] font-black text-white uppercase tracking-widest truncate w-full text-center">{t.name}</span>
-                          </div>
-                      ))}
-                  </div>
-              )}
-          </div>
-          
-          </div><button onClick={updateSettings} className="w-full bg-emerald-500 text-slate-950 px-8 py-5 rounded-xl font-black uppercase tracking-[0.2em] hover:bg-emerald-400 transition-all active:scale-95 text-xs flex justify-center items-center gap-2 shadow-[0_0_20px_rgba(16,185,129,0.3)]">ΑΠΟΘΗΚΕΥΣΗ BRANDING</button></div><div className="bg-white/5 backdrop-blur-xl p-6 sm:p-8 rounded-[2rem] border border-white/10 shadow-2xl max-w-4xl"><h3 className="text-xl font-black mb-2 text-white flex items-center gap-3 playfair tracking-wide"><Palette className="text-purple-500"/> Στήσιμο Κατηγοριών</h3><div className="space-y-4 my-8">{catSettings.map((cat, index) => (<div key={cat.name} className="flex flex-col sm:flex-row sm:items-center gap-5 bg-black/40 p-4 rounded-2xl border border-white/5 hover:border-white/10 transition-colors"><div className="flex items-center gap-4 flex-1"><div className="flex flex-col gap-1"><button onClick={() => moveCatUp(index)} className="bg-white/5 text-slate-400 hover:text-white p-1.5 rounded-lg transition-colors"><ArrowUp size={14}/></button><button onClick={() => moveCatDown(index)} className="bg-white/5 text-slate-400 hover:text-white p-1.5 rounded-lg transition-colors"><ArrowDown size={14}/></button></div><span className="font-black text-base text-white uppercase tracking-widest">{cat.name}</span></div><div className="flex items-center gap-5 bg-white/5 p-3 rounded-xl border border-white/5"><div className="flex items-center gap-3"><label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Card</label><input type="color" className="w-8 h-8 rounded cursor-pointer bg-transparent border-0 outline-none" value={cat.bg_color} onChange={e => { const newArr = [...catSettings]; newArr[index].bg_color = e.target.value; setCatSettings(newArr); }} /></div><div className="w-px h-6 bg-white/10"></div><div className="flex items-center gap-3"><label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Text</label><input type="color" className="w-8 h-8 rounded cursor-pointer bg-transparent border-0 outline-none" value={cat.text_color} onChange={e => { const newArr = [...catSettings]; newArr[index].text_color = e.target.value; setCatSettings(newArr); }} /></div></div><div className="w-full sm:w-32 h-14 flex items-center justify-center font-black uppercase text-[10px] tracking-widest rounded-xl shadow-lg border border-white/10 relative overflow-hidden" style={{ backgroundColor: cat.bg_color, color: cat.text_color }}><div className="absolute inset-0 opacity-20" style={{ background: `radial-gradient(circle at top left, #ffffff 0%, transparent 80%)` }}></div>PREVIEW</div></div>))}</div><button onClick={updateCategorySettings} className="w-full sm:w-auto bg-purple-500 text-white px-8 py-5 rounded-xl font-black uppercase tracking-[0.2em] hover:bg-purple-400 transition-all active:scale-95 text-xs shadow-[0_0_20px_rgba(168,85,247,0.3)]">ΑΠΟΘΗΚΕΥΣΗ UI</button></div></div>
-        )}
-
       </main>
-
-      {/* QR MODAL (ΕΚΤΥΠΩΣΗ ΖΩΝΗΣ) */}
-      {isQRModalOpen && (<div className="fixed inset-0 z-[60] flex items-center justify-center p-4"><div className="absolute inset-0 bg-black/80 backdrop-blur-xl" onClick={() => setIsQRModalOpen(false)}></div><div className="bg-slate-900/90 border border-white/10 p-6 sm:p-8 rounded-[3rem] relative z-10 w-full max-w-5xl h-[85vh] flex flex-col shadow-2xl animate-in zoom-in-95 duration-300 backdrop-blur-2xl"><div className="flex justify-between items-center mb-6 shrink-0 border-b border-white/10 pb-6"><div className="flex items-center gap-4"><div className="bg-purple-500/20 p-3 sm:p-4 rounded-2xl"><QrCode className="text-purple-400" size={24}/></div><div><h2 className="text-xl sm:text-3xl font-black text-white playfair tracking-wide">Εκτύπωση QR</h2><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">ΖΩΝΗ: <span className="text-white">{activeZone}</span></p></div></div><button onClick={() => setIsQRModalOpen(false)} className="text-slate-400 hover:text-white bg-white/5 p-3 rounded-xl transition-colors border border-white/5"><X size={20}/></button></div><div className="flex-1 overflow-y-auto pr-2 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 sm:gap-6">{umbrellas.filter(u => (u.zone_name || 'Main') === activeZone).map(u => { const qrUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/?store=${store.slug}&umbrella=${u.number}`; const qrImageSrc = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qrUrl)}&margin=10`; return (<div key={u.id} className="flex flex-col items-center bg-black/40 p-5 border border-white/5 rounded-[2rem] group hover:border-purple-500/50 transition-colors shadow-lg"><h3 className="font-black text-lg sm:text-xl text-white mb-1 tracking-widest uppercase">{u.number}</h3><p className="text-[8px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4">{u.asset_type}</p><div className="bg-white p-2 rounded-2xl mb-5 shadow-xl group-hover:scale-105 transition-transform"><img src={qrImageSrc} alt={`QR`} className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl" /></div><a href={qrImageSrc} download={`Aqua_QR_${u.zone_name}_${u.number}.png`} target="_blank" rel="noreferrer" className="w-full text-center text-[10px] bg-purple-500 text-white px-4 py-3 rounded-xl font-black uppercase tracking-[0.2em] shadow-lg hover:bg-purple-400">ΛΗΨΗ HD</a></div>) })}</div></div></div>)}
     </div>
   );
 }
