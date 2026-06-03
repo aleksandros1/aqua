@@ -2,7 +2,7 @@
   "name": "AQUA Command Center",
   "short_name": "AQUA",
   "description": "Interactive Order System",
-  "start_url": "/",
+  "start_url": "/admin", 
   "display": "standalone",
   "background_color": "#020617",
   "theme_color": "#06b6d4",
